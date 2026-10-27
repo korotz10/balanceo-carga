@@ -95,10 +95,13 @@ class ConfiguracionFalla:
 
     Attributes:
         tarea_trigger: Número de tareas asignadas tras el cual ocurre la falla.
-        servidor_id: ID del servidor que falla.
+        servidor_id: ID preferido como desempate si se selecciona mayor carga.
+        elegir_mas_cargado: Si es True, cae el servidor con más trabajo pendiente
+            en el momento del disparador para que la reasignación sea visible.
     """
     tarea_trigger: int
     servidor_id: int
+    elegir_mas_cargado: bool = False
 
 
 @dataclass
@@ -246,10 +249,31 @@ def ejecutar_simulacion(
                 and total_asignadas >= config_falla.tarea_trigger
             ):
                 falla_ejecutada = True
-                srv_falla = next(
-                    (servidor_actual for servidor_actual in servidores if servidor_actual.id == config_falla.servidor_id),
-                    None,
-                )
+                activos = [
+                    servidor_actual
+                    for servidor_actual in servidores
+                    if servidor_actual.estado != EstadoServidor.CAIDO
+                ]
+                if config_falla.elegir_mas_cargado and activos:
+                    # Se falla el nodo con más trabajo restante para hacer
+                    # observable la recuperación sin cambiar el instante elegido.
+                    srv_falla = max(
+                        activos,
+                        key=lambda servidor_actual: (
+                            servidor_actual.trabajo_pendiente,
+                            servidor_actual.id == config_falla.servidor_id,
+                            -servidor_actual.id,
+                        ),
+                    )
+                else:
+                    srv_falla = next(
+                        (
+                            servidor_actual
+                            for servidor_actual in servidores
+                            if servidor_actual.id == config_falla.servidor_id
+                        ),
+                        None,
+                    )
                 if srv_falla and srv_falla.estado != EstadoServidor.CAIDO:
                     srv_falla.estado = EstadoServidor.CAIDO
                     eventos.append(

@@ -20,12 +20,14 @@ def test_round_robin_keeps_turn_when_available_server_set_changes():
     assert estrategia.asignar(tarea, [servidores[0], servidores[2]]).id == 0
 
 
-def test_menor_carga_chooses_lowest_load_then_lowest_id():
-    servidores = [Servidor(id=1), Servidor(id=0)]
-    servidores[0].agregar_tarea(Tarea(id=1, duracion=3))
-    servidores[1].agregar_tarea(Tarea(id=2, duracion=3))
+def test_menor_carga_rotates_among_equal_load_servers():
+    estrategia = MenorCarga()
+    servidores = [Servidor(id=id_) for id_ in range(4)]
+    tarea = Tarea(id=0, duracion=1)
 
-    assert MenorCarga().asignar(Tarea(id=3, duracion=1), servidores).id == 0
+    asignaciones = [estrategia.asignar(tarea, servidores).id for _ in range(8)]
+
+    assert asignaciones == [0, 1, 2, 3, 0, 1, 2, 3]
 
 
 def test_random_strategy_is_reproducible():

@@ -6,6 +6,7 @@ from src.metrics import calcular_metricas
 from src.models import Servidor, Tarea
 from src.parameters import ParametrosSimulacion
 from src.scenarios import ejecutar_escenario_a, ejecutar_todos
+from src.task_generator import generar_tareas
 
 
 def test_engine_completes_every_task_and_reports_elapsed_time():
@@ -37,6 +38,40 @@ def test_failure_reassigns_tasks_without_losing_completions():
     assert resultado.tareas_reasignadas > 0
     assert len({registro.tarea_id for registro in resultado.registros}) == len(tareas)
     assert any(evento.tipo == "CAIDA" for evento in resultado.eventos)
+
+
+def test_scenario_failure_targets_server_with_most_pending_work():
+    tareas = [
+        Tarea(id=0, duracion=3),
+        Tarea(id=1, duracion=8),
+        Tarea(id=2, duracion=1),
+        Tarea(id=3, duracion=7),
+        Tarea(id=4, duracion=9),
+        Tarea(id=5, duracion=1),
+    ]
+    resultado = ejecutar_simulacion(
+        tareas,
+        [Servidor(id=id_) for id_ in range(3)],
+        RoundRobin(),
+        umbral_sobrecarga=100,
+        config_falla=ConfiguracionFalla(
+            tarea_trigger=5,
+            servidor_id=0,
+            elegir_mas_cargado=True,
+        ),
+        nombre_escenario="C - Falla",
+    )
+
+    caida = next(evento for evento in resultado.eventos if evento.tipo == "CAIDA")
+    pendientes_reasignados = [
+        evento
+        for evento in resultado.eventos
+        if evento.tipo == "PENDIENTE_REASIGNACION"
+    ]
+
+    assert caida.servidor_id == 1
+    assert len(pendientes_reasignados) == 2
+    assert len(resultado.registros) == len(tareas)
 
 
 def test_engine_raises_instead_of_returning_partial_results_without_servers():
@@ -117,15 +152,33 @@ def test_every_strategy_completes_every_task_in_all_scenarios():
         repeticiones=2,
     )
     resultados = ejecutar_todos(parametros)
+    cargas_totales_esperadas = [
+        sum(
+            tarea.duracion
+            for tarea in generar_tareas(
+                cantidad=parametros.num_tareas,
+                duracion_min=parametros.duracion_min,
+                duracion_max=parametros.duracion_max,
+                semilla=parametros.semilla + indice,
+                intervalo_llegada=parametros.intervalo_llegada,
+            )
+        )
+        for indice in range(parametros.repeticiones)
+    ]
 
     assert len(resultados) == 9
     for ejecuciones in resultados.values():
         assert isinstance(ejecuciones, list)
         assert len(ejecuciones) == parametros.repeticiones
-        for resultado in ejecuciones:
+        for indice, resultado in enumerate(ejecuciones):
             assert len(resultado.registros) == parametros.num_tareas
             assert len({registro.tarea_id for registro in resultado.registros}) == (
                 parametros.num_tareas
+            )
+            metricas = calcular_metricas(resultado)
+            assert metricas["tareas_completadas"] == parametros.num_tareas
+            assert sum(metricas["carga_por_servidor"].values()) == (
+                cargas_totales_esperadas[indice]
             )
             if resultado.nombre_escenario == "C - Falla":
                 assert resultado.tareas_reasignadas == sum(

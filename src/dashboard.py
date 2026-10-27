@@ -62,14 +62,32 @@ def _resumen_por_resultado(resultados: dict) -> pd.DataFrame:
     return pd.DataFrame(filas)
 
 
-def _resaltar_mejor(columna: pd.Series) -> pd.Series:
-    if columna.empty:
-        return pd.Series("", index=columna.index)
-    minimo = columna.min()
-    maximo = columna.max()
-    if math.isclose(minimo, maximo):
-        return pd.Series("background-color: #5353ec", index=columna.index)
-    return columna.map(lambda valor: "background-color: #5353ec" if valor == minimo else "")
+def _estilos_mejores(tabla: pd.DataFrame) -> pd.DataFrame:
+    estilos = pd.DataFrame("", index=tabla.index, columns=tabla.columns)
+    metricas = (
+        "makespan_promedio",
+        "desviacion_estandar_carga_promedio",
+        "tiempo_espera_promedio",
+        "tareas_reasignadas_promedio",
+        "sobrecargas_total_promedio",
+        "tiempo_espera_cola_promedio",
+    )
+    for metrica in metricas:
+        if metrica not in tabla.columns:
+            continue
+        escenarios = ["C - Falla"] if metrica == "tareas_reasignadas_promedio" else tabla["escenario"].unique()
+        for escenario in escenarios:
+            indices = tabla.index[tabla["escenario"] == escenario]
+            if len(indices) == 0:
+                continue
+            minimo = tabla.loc[indices, metrica].min()
+            ganadores = indices[
+                tabla.loc[indices, metrica].map(
+                    lambda valor: math.isclose(valor, minimo)
+                )
+            ]
+            estilos.loc[ganadores, metrica] = "background-color: #5353ec"
+    return estilos
 
 
 def _best_by_metric(tabla: pd.DataFrame) -> dict[str, str]:
@@ -84,8 +102,13 @@ def _best_by_metric(tabla: pd.DataFrame) -> dict[str, str]:
     ):
         if columna not in tabla.columns:
             continue
-        fila = tabla.loc[tabla[columna].idxmin()]
-        mejores[etiqueta] = f"{fila['estrategia']} en {fila['escenario']}"
+        escenarios = ["C - Falla"] if columna == "tareas_reasignadas_promedio" else tabla["escenario"].unique()
+        for escenario in escenarios:
+            datos = tabla[tabla["escenario"] == escenario]
+            if datos.empty:
+                continue
+            fila = datos.loc[datos[columna].idxmin()]
+            mejores[f"{etiqueta} — {escenario}"] = fila["estrategia"]
     return mejores
 
 
@@ -131,14 +154,21 @@ def _plot_carga_por_servidor(resultados: dict) -> None:
     ax.set_ylabel("Carga promedio")
     ax.set_xticks(posiciones)
     ax.set_xticklabels([f"S{servidor_id}" for servidor_id in servidores])
-    ax.legend(title="Estrategia")
-    fig.tight_layout()
+    ax.legend(title="Estrategia", loc="upper left", bbox_to_anchor=(1.02, 1))
+    fig.tight_layout(rect=(0, 0, 0.82, 1))
     st.pyplot(fig)
 
 
 def _plot_metricas_por_estrategia(resultados: dict) -> None:
     tabla = _resumen_por_resultado(resultados)
-    metric_key = st.selectbox("Métrica", ["makespan_promedio", "desviacion_estandar_carga_promedio"], index=0)
+    etiquetas_metricas = {
+        "Makespan": "makespan_promedio",
+        "Desviación estándar de carga": "desviacion_estandar_carga_promedio",
+        "Tiempo promedio de espera": "tiempo_espera_promedio",
+        "Sobrecargas totales": "sobrecargas_total_promedio",
+    }
+    etiqueta_metrica = st.selectbox("Métrica", list(etiquetas_metricas))
+    metric_key = etiquetas_metricas[etiqueta_metrica]
     fig, ax = plt.subplots(figsize=(10, 5))
     escenarios = tabla["escenario"].drop_duplicates().tolist()
     estrategias = tabla["estrategia"].drop_duplicates().tolist()
@@ -159,13 +189,13 @@ def _plot_metricas_por_estrategia(resultados: dict) -> None:
             width=ancho,
             label=estrategia,
         )
-    ax.set_title(f"Comparación de {metric_key}")
+    ax.set_title(f"Comparación de {etiqueta_metrica.lower()}")
     ax.set_xlabel("Escenario")
-    ax.set_ylabel(metric_key)
+    ax.set_ylabel(etiqueta_metrica)
     ax.set_xticks(x)
     ax.set_xticklabels(escenarios)
-    ax.legend(title="Estrategia")
-    fig.tight_layout()
+    ax.legend(title="Estrategia", loc="upper left", bbox_to_anchor=(1.02, 1))
+    fig.tight_layout(rect=(0, 0, 0.82, 1))
     st.pyplot(fig)
 
 
@@ -249,7 +279,13 @@ def _configurar_parametros() -> ParametrosSimulacion:
         semilla = st.number_input("SEMILLA", value=int(base.semilla), step=1)
         num_tareas = st.number_input("NUM_TAREAS", min_value=1, value=int(base.num_tareas), step=1)
         tarea_falla = st.number_input("TAREA_FALLA", min_value=1, value=int(base.tarea_falla), step=1)
-        servidor_falla = st.number_input("SERVIDOR_FALLA", min_value=0, max_value=max(base.num_servidores - 1, 0), value=int(base.servidor_falla), step=1)
+        servidor_falla = st.number_input(
+            "SERVIDOR_FALLA (desempate de carga)",
+            min_value=0,
+            max_value=max(base.num_servidores - 1, 0),
+            value=int(base.servidor_falla),
+            step=1,
+        )
         servidor_lento = st.number_input("SERVIDOR_LENTO", min_value=0, max_value=max(base.num_servidores - 1, 0), value=int(base.servidor_lento), step=1)
         capacidad_reducida = st.number_input("CAPACIDAD_REDUCIDA", min_value=0.1, max_value=0.99, value=float(base.capacidad_reducida), step=0.05)
         repeticiones = st.number_input("REPETICIONES", min_value=1, value=int(base.repeticiones), step=1)
@@ -312,18 +348,7 @@ def main() -> None:
 
     with tab1:
         st.dataframe(
-            resumen.style.apply(
-                _resaltar_mejor,
-                axis=0,
-                subset=[
-                    "makespan_promedio",
-                    "desviacion_estandar_carga_promedio",
-                    "tiempo_espera_promedio",
-                    "tareas_reasignadas_promedio",
-                    "sobrecargas_total_promedio",
-                    "tiempo_espera_cola_promedio",
-                ],
-            ),
+            resumen.style.apply(_estilos_mejores, axis=None),
             width="stretch",
         )
         mejores = _best_by_metric(resumen)

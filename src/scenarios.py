@@ -109,11 +109,16 @@ def ejecutar_escenario_c(
     estrategia: EstrategiaAsignacion,
     parametros: ParametrosSimulacion,
 ) -> ResultadoSimulacion:
-    """Escenario C: fallo de un servidor y reasignación."""
+    """Escenario C: al dispararse la falla, cae el servidor con más trabajo pendiente.
+
+    El ID de servidor configurado se usa como desempate para que el momento
+    de falla produzca una cola relevante y permita observar las reasignaciones.
+    """
     servidores = crear_servidores_normales(parametros.num_servidores)
     config_falla = ConfiguracionFalla(
         tarea_trigger=parametros.tarea_falla,
         servidor_id=parametros.servidor_falla,
+        elegir_mas_cargado=True,
     )
     return ejecutar_simulacion(
         tareas=tareas,

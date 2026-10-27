@@ -122,19 +122,26 @@ class MenorCarga(EstrategiaAsignacion):
     Esto representa cuánto tiempo tardará el servidor en procesar
     todas sus tareas pendientes.
 
-    Criterio de desempate: si dos servidores tienen la misma carga,
-    se elige el de menor ID. Esto garantiza determinismo.
+    Criterio de desempate: cuando varios servidores tienen la misma carga
+    mínima, se rota entre ellos desde el servidor elegido anteriormente.
+    La rotación evita favorecer siempre al servidor con el ID menor sin
+    introducir aleatoriedad en los resultados.
 
     Ventajas:
     - Se adapta automáticamente a servidores con distinta capacidad.
     - Se adapta a tareas con distinta duración.
-    - Tiende a producir la distribución más equilibrada.
+    - Reduce la carga estimada local al decidir cada asignación.
 
     Limitaciones:
     - Necesita consultar el estado de todos los servidores (overhead).
+    - Un menor tiempo de trabajo pendiente no garantiza por sí solo la
+      distribución acumulada más uniforme.
     - En un sistema real, la información de carga puede estar
       desactualizada (problema de consistencia).
     """
+
+    def __init__(self) -> None:
+        self._ultimo_servidor_id: int | None = None
 
     @property
     def nombre(self) -> str:
@@ -142,8 +149,25 @@ class MenorCarga(EstrategiaAsignacion):
 
     def asignar(self, tarea: Tarea, servidores: list[Servidor]) -> Servidor:
         self._validar_servidores(servidores)
-        # min() con clave compuesta: menor carga, luego menor ID (desempate)
-        return min(servidores, key=lambda s: (s.carga, s.id))
+        menor_carga = min(servidor.carga for servidor in servidores)
+        empatados = sorted(
+            (servidor for servidor in servidores if servidor.carga == menor_carga),
+            key=lambda servidor: servidor.id,
+        )
+
+        # En empates, continúa después del último elegido para distribuir
+        # asignaciones equivalentes entre nodos en lugar de sesgar por ID.
+        siguiente = next(
+            (
+                servidor
+                for servidor in empatados
+                if self._ultimo_servidor_id is not None
+                and servidor.id > self._ultimo_servidor_id
+            ),
+            empatados[0],
+        )
+        self._ultimo_servidor_id = siguiente.id
+        return siguiente
 
 
 class Aleatoria(EstrategiaAsignacion):

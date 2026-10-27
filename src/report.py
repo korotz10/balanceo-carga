@@ -9,6 +9,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
+from openpyxl.styles import PatternFill
 
 from src.engine import ResultadoSimulacion
 from src.metrics import calcular_metricas
@@ -63,7 +64,19 @@ def _resumen(resultados: ResultadosPorCombinacion) -> pd.DataFrame:
             for servidor_id in range(max_servidor)
         )
         filas.append(resumen)
-    return pd.DataFrame(filas)
+    tabla = pd.DataFrame(filas)
+    tabla["mejor_tareas_reasignadas"] = False
+    filas_escenario_c = tabla.index[tabla["escenario"] == "C - Falla"]
+    if len(filas_escenario_c):
+        minimo_reasignadas = tabla.loc[
+            filas_escenario_c, "tareas_reasignadas_promedio"
+        ].min()
+        ganadoras = filas_escenario_c[
+            tabla.loc[filas_escenario_c, "tareas_reasignadas_promedio"]
+            == minimo_reasignadas
+        ]
+        tabla.loc[ganadoras, "mejor_tareas_reasignadas"] = True
+    return tabla
 
 
 def generar_csv(resultados: ResultadosPorCombinacion, ruta: str | Path) -> Path:
@@ -85,6 +98,18 @@ def generar_excel(resultados: ResultadosPorCombinacion, ruta: str | Path) -> Pat
         for escenario, datos in tabla.groupby("escenario", sort=False):
             hoja = escenario.split(" - ", maxsplit=1)[0]
             datos.to_excel(writer, sheet_name=hoja[:31], index=False)
+            if escenario == "C - Falla":
+                hoja_excel = writer.sheets[hoja[:31]]
+                columna = datos.columns.get_loc("tareas_reasignadas_promedio") + 1
+                resaltado = PatternFill(
+                    fill_type="solid",
+                    fgColor="D9EAD3",
+                )
+                for fila_excel, es_mejor in enumerate(
+                    datos["mejor_tareas_reasignadas"], start=2
+                ):
+                    if es_mejor:
+                        hoja_excel.cell(row=fila_excel, column=columna).fill = resaltado
     logger.info("Excel generado: %s", destino)
     return destino
 
@@ -127,20 +152,37 @@ def generar_graficas(
             xticks=posiciones,
             xticklabels=[f"S{id_}" for id_ in ids],
         )
-        ax.legend(title="Estrategia")
-        fig.tight_layout()
+        ax.legend(title="Estrategia", loc="upper left", bbox_to_anchor=(1.02, 1))
+        fig.tight_layout(rect=(0, 0, 0.82, 1))
         destino = directorio / f"carga_{escenario.split(' - ')[0].lower()}.png"
         fig.savefig(destino, dpi=150)
         plt.close(fig)
         archivos.append(destino)
 
     for columna, titulo, eje_y, nombre in (
-        ("makespan_promedio", "Makespan promedio por estrategia", "Unidades de tiempo", "makespan"),
+        (
+            "makespan_promedio",
+            "Makespan promedio por estrategia",
+            "Unidades de tiempo",
+            "makespan",
+        ),
         (
             "desviacion_estandar_carga_promedio",
             "Desviación estándar de carga por estrategia",
             "Desviación estándar",
             "desviacion_carga",
+        ),
+        (
+            "tiempo_espera_promedio_promedio",
+            "Tiempo promedio de espera por estrategia",
+            "Ticks de espera",
+            "tiempo_espera",
+        ),
+        (
+            "sobrecargas_total_promedio",
+            "Sobrecargas totales por estrategia",
+            "Eventos de sobrecarga",
+            "sobrecargas",
         ),
     ):
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -165,8 +207,8 @@ def generar_graficas(
             xticks=posiciones,
             xticklabels=escenarios,
         )
-        ax.legend(title="Estrategia")
-        fig.tight_layout()
+        ax.legend(title="Estrategia", loc="upper left", bbox_to_anchor=(1.02, 1))
+        fig.tight_layout(rect=(0, 0, 0.82, 1))
         destino = directorio / f"{nombre}_comparativo.png"
         fig.savefig(destino, dpi=150)
         plt.close(fig)
