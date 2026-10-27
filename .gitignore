@@ -8,5 +8,6 @@ venv/
 dist/
 build/
 .pytest_cache/
+.vscode/
 results/*
 !results/.gitkeep

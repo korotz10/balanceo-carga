@@ -85,6 +85,7 @@ class RegistroTarea:
     tiempo_inicio_proceso: int
     tiempo_fin: int
     reasignada: bool = False
+    tiempo_espera_disponibilidad: int = 0
 
 
 @dataclass
@@ -129,126 +130,105 @@ def ejecutar_simulacion(
     config_falla: ConfiguracionFalla | None = None,
     nombre_escenario: str = "",
 ) -> ResultadoSimulacion:
-    """
-    Ejecuta la simulación completa de asignación y procesamiento de tareas.
-
-    El motor avanza un reloj discreto tick a tick. En cada tick:
-    1. Se asignan las tareas que han llegado (y las que esperaban).
-    2. Cada servidor activo procesa trabajo según su capacidad.
-    3. Se verifican cambios de estado (sobrecarga, recuperación).
-
-    La simulación termina cuando todas las tareas han sido procesadas
-    y no quedan tareas pendientes de llegar ni en espera.
-
-    Args:
-        tareas: Lista de tareas a procesar (con tiempos de llegada).
-        servidores: Lista de servidores disponibles.
-        estrategia: Estrategia de asignación a utilizar.
-        umbral_sobrecarga: Carga máxima antes de marcar como SOBRECARGADO.
-        config_falla: Configuración de falla de servidor (opcional).
-        nombre_escenario: Nombre del escenario para el registro.
-
-    Returns:
-        ResultadoSimulacion con todos los eventos, registros y métricas.
-    """
-    # --- Inicialización ---
+    """Ejecuta una corrida de la simulación con reloj discreto."""
     eventos: list[Evento] = []
     registros: list[RegistroTarea] = []
-
-    # Tareas pendientes de llegar, ordenadas por tiempo de llegada
-    pendientes = sorted(list(tareas), key=lambda t: t.tiempo_llegada)
-
-    # Tareas que llegaron pero no pudieron ser asignadas
+    pendientes = sorted(list(tareas), key=lambda tarea: tarea.tiempo_llegada)
     en_espera: list[Tarea] = []
-
-    # Trabajo restante para tareas reasignadas (tarea_id -> trabajo_restante)
-    # Cuando un servidor cae, sus tareas parcialmente procesadas conservan
-    # el trabajo restante en lugar de reiniciar desde cero.
     trabajo_restante_override: dict[int, float] = {}
-
-    # Cuándo empieza a procesarse cada tarea (tarea_id -> tick)
     inicio_proceso: dict[int, int] = {}
-
-    # Info de asignación: tarea_id -> (servidor_id, tiempo_asignacion, reasignada)
     asignacion_info: dict[int, tuple[int, int, bool]] = {}
-
+    inicio_espera: dict[int, int] = {}
+    espera_total: dict[int, int] = {}
     total_asignadas = 0
-    tareas_reasignadas_count = 0
     falla_ejecutada = False
     reloj = 0
 
     nombre_estrategia = estrategia.nombre
 
-    logger.info(
-        f"Iniciando simulación: escenario='{nombre_escenario}', "
-        f"estrategia='{nombre_estrategia}', "
-        f"tareas={len(tareas)}, servidores={len(servidores)}"
-    )
-
-    # --- Bucle principal de simulación ---
-    # Continúa mientras haya tareas por llegar, tareas en espera,
-    # o servidores con trabajo pendiente.
-    while (pendientes or en_espera or
-           any(s.cola for s in servidores if s.estado != EstadoServidor.CAIDO)):
-        if (en_espera or pendientes) and not any(
+    while pendientes or en_espera or any(
+        servidor.cola for servidor in servidores if servidor.estado != EstadoServidor.CAIDO
+    ):
+        if (pendientes or en_espera) and not any(
             servidor.estado != EstadoServidor.CAIDO for servidor in servidores
         ):
             raise RuntimeError(
-                "La simulación no puede continuar: no quedan servidores "
-                "disponibles y hay tareas pendientes."
+                "La simulación no puede continuar: no quedan servidores disponibles "
+                "y hay tareas pendientes."
             )
 
-        # ── Paso 1: Recoger tareas que llegan en este tick ──
         nuevas: list[Tarea] = []
         while pendientes and pendientes[0].tiempo_llegada <= reloj:
             nuevas.append(pendientes.pop(0))
 
-        # Combinar con tareas en espera (las que no pudieron asignarse antes)
         por_asignar = en_espera + nuevas
         en_espera = []
 
-        # ── Paso 2: Asignar tareas a servidores ──
         for tarea in por_asignar:
-            disponibles = [s for s in servidores if s.esta_disponible()]
+            disponibles = [servidor for servidor in servidores if servidor.esta_disponible()]
+            if not disponibles:
+                en_espera.append(tarea)
+                if tarea.id not in inicio_espera:
+                    inicio_espera[tarea.id] = reloj
+                    eventos.append(
+                        Evento(
+                            tiempo=reloj,
+                            tipo="ESPERA",
+                            tarea_id=tarea.id,
+                            servidor_id=-1,
+                            detalle=(
+                                f"Tarea {tarea.id} espera porque no hay servidores disponibles"
+                            ),
+                        )
+                    )
+                continue
 
-            if disponibles:
-                servidor = estrategia.asignar(tarea, disponibles)
+            if tarea.id in inicio_espera:
+                espera = reloj - inicio_espera.pop(tarea.id)
+                espera_total[tarea.id] = espera_total.get(tarea.id, 0) + espera
+                eventos.append(
+                    Evento(
+                        tiempo=reloj,
+                        tipo="FIN_ESPERA",
+                        tarea_id=tarea.id,
+                        servidor_id=-1,
+                        detalle=(
+                            f"Tarea {tarea.id} salió de la cola de espera tras {espera} ticks"
+                        ),
+                    )
+                )
 
-                # Si la tarea fue reasignada, usar el trabajo restante
-                # en vez de la duración original (no pierde progreso).
-                if tarea.id in trabajo_restante_override:
-                    restante = trabajo_restante_override.pop(tarea.id)
-                    servidor.cola.append((tarea, restante))
-                    servidor.total_tareas_recibidas += 1
-                else:
-                    servidor.agregar_tarea(tarea)
+            servidor = estrategia.asignar(tarea, disponibles)
+            if tarea.id in trabajo_restante_override:
+                restante = trabajo_restante_override.pop(tarea.id)
+                servidor.cola.append((tarea, restante))
+            else:
+                servidor.agregar_tarea(tarea)
 
-                total_asignadas += 1
+            total_asignadas += 1
+            es_reasignada = tarea.id in asignacion_info
+            asignacion_info[tarea.id] = (servidor.id, reloj, es_reasignada)
 
-                # Si la cola tenía solo esta tarea, empieza a procesarse ahora
-                if len(servidor.cola) == 1:
-                    inicio_proceso[tarea.id] = reloj
+            if len(servidor.cola) == 1:
+                inicio_proceso[tarea.id] = reloj
 
-                # Registrar info de asignación
-                es_reasignada = tarea.id in asignacion_info
-                asignacion_info[tarea.id] = (servidor.id, reloj, es_reasignada)
-
-                eventos.append(Evento(
+            eventos.append(
+                Evento(
                     tiempo=reloj,
                     tipo="REASIGNACION" if es_reasignada else "ASIGNACION",
                     tarea_id=tarea.id,
                     servidor_id=servidor.id,
                     detalle=(
-                        f"Tarea {tarea.id} (dur={tarea.duracion}) → "
-                        f"Servidor {servidor.id} (carga={servidor.carga:.1f})"
+                        f"Tarea {tarea.id} -> Servidor {servidor.id} "
+                        f"(carga={servidor.carga:.1f})"
                     ),
-                ))
+                )
+            )
 
-                # Verificar sobrecarga tras agregar la tarea
-                if (servidor.carga > umbral_sobrecarga and
-                        servidor.estado == EstadoServidor.ACTIVO):
-                    servidor.estado = EstadoServidor.SOBRECARGADO
-                    eventos.append(Evento(
+            if servidor.carga > umbral_sobrecarga and servidor.estado == EstadoServidor.ACTIVO:
+                servidor.estado = EstadoServidor.SOBRECARGADO
+                eventos.append(
+                    Evento(
                         tiempo=reloj,
                         tipo="SOBRECARGA",
                         tarea_id=tarea.id,
@@ -257,124 +237,121 @@ def ejecutar_simulacion(
                             f"Servidor {servidor.id} SOBRECARGADO "
                             f"(carga={servidor.carga:.1f} > umbral={umbral_sobrecarga})"
                         ),
-                    ))
-                    logger.info(
-                        f"[t={reloj}] Servidor {servidor.id} SOBRECARGADO "
-                        f"(carga={servidor.carga:.1f})"
                     )
+                )
 
-                # ── Verificar si hay que provocar una falla (Escenario C) ──
-                if (config_falla and not falla_ejecutada and
-                        total_asignadas >= config_falla.tarea_trigger):
-                    falla_ejecutada = True
-                    srv_falla = next(
-                        (s for s in servidores if s.id == config_falla.servidor_id),
-                        None,
+            if (
+                config_falla
+                and not falla_ejecutada
+                and total_asignadas >= config_falla.tarea_trigger
+            ):
+                falla_ejecutada = True
+                srv_falla = next(
+                    (servidor_actual for servidor_actual in servidores if servidor_actual.id == config_falla.servidor_id),
+                    None,
+                )
+                if srv_falla and srv_falla.estado != EstadoServidor.CAIDO:
+                    srv_falla.estado = EstadoServidor.CAIDO
+                    eventos.append(
+                        Evento(
+                            tiempo=reloj,
+                            tipo="CAIDA",
+                            tarea_id=-1,
+                            servidor_id=srv_falla.id,
+                            detalle=(
+                                f"Servidor {srv_falla.id} cayó tras asignar la tarea #{total_asignadas}"
+                            ),
+                        )
                     )
-                    if srv_falla and srv_falla.estado != EstadoServidor.CAIDO:
-                        _ejecutar_falla_servidor(
-                            srv_falla, reloj, total_asignadas,
-                            en_espera, trabajo_restante_override,
-                            inicio_proceso, eventos,
+                    for tarea_pendiente, trabajo_restante in list(srv_falla.cola):
+                        srv_falla.cola.remove((tarea_pendiente, trabajo_restante))
+                        trabajo_restante_override[tarea_pendiente.id] = trabajo_restante
+                        en_espera.append(tarea_pendiente)
+                        eventos.append(
+                            Evento(
+                                tiempo=reloj,
+                                tipo="PENDIENTE_REASIGNACION",
+                                tarea_id=tarea_pendiente.id,
+                                servidor_id=srv_falla.id,
+                                detalle=(
+                                    f"Tarea {tarea_pendiente.id} reasignada con {trabajo_restante:.1f} "
+                                    "unidades restantes"
+                                ),
+                            )
                         )
-                        tareas_reasignadas_count += len(
-                            [e for e in eventos if e.tipo == "PENDIENTE_REASIGNACION"
-                             and e.tiempo == reloj]
-                        )
-            else:
-                # No hay servidores disponibles; la tarea espera
-                en_espera.append(tarea)
+                    srv_falla.cola.clear()
 
-        # ── Paso 3: Procesar trabajo en cada servidor ──
         for servidor in servidores:
             if servidor.estado == EstadoServidor.CAIDO or not servidor.cola:
                 continue
-
-            tarea_actual, restante = servidor.cola[0]
-
-            # Registrar inicio de procesamiento si es la primera vez
+            tarea_actual, trabajo_restante = servidor.cola[0]
             if tarea_actual.id not in inicio_proceso:
                 inicio_proceso[tarea_actual.id] = reloj
-
-            # El servidor procesa según su capacidad
-            restante -= servidor.capacidad
-
-            if restante <= 1e-9:
-                # ── Tarea completada ──
+            nuevo_restante = trabajo_restante - servidor.capacidad
+            if nuevo_restante <= 1e-9:
                 servidor.cola.pop(0)
                 servidor.tareas_completadas.append(tarea_actual.id)
-
-                # Obtener info de asignación
-                srv_id, t_asig, reasig = asignacion_info.get(
+                _, tiempo_asignacion, reasignada = asignacion_info.get(
                     tarea_actual.id, (servidor.id, 0, False)
                 )
-
-                registros.append(RegistroTarea(
-                    tarea_id=tarea_actual.id,
-                    duracion=tarea_actual.duracion,
-                    tiempo_llegada=tarea_actual.tiempo_llegada,
-                    servidor_id=servidor.id,
-                    tiempo_asignacion=t_asig,
-                    tiempo_inicio_proceso=inicio_proceso.get(tarea_actual.id, 0),
-                    tiempo_fin=reloj,
-                    reasignada=reasig,
-                ))
-
-                eventos.append(Evento(
-                    tiempo=reloj,
-                    tipo="FIN_TAREA",
-                    tarea_id=tarea_actual.id,
-                    servidor_id=servidor.id,
-                    detalle=f"Tarea {tarea_actual.id} completada en Servidor {servidor.id}",
-                ))
-
-                # Si hay más tareas en cola, la siguiente empieza en el próximo tick
+                registros.append(
+                    RegistroTarea(
+                        tarea_id=tarea_actual.id,
+                        duracion=tarea_actual.duracion,
+                        tiempo_llegada=tarea_actual.tiempo_llegada,
+                        servidor_id=servidor.id,
+                        tiempo_asignacion=tiempo_asignacion,
+                        tiempo_inicio_proceso=inicio_proceso.get(tarea_actual.id, 0),
+                        tiempo_fin=reloj + 1,
+                        reasignada=reasignada,
+                        tiempo_espera_disponibilidad=espera_total.get(tarea_actual.id, 0),
+                    )
+                )
+                eventos.append(
+                    Evento(
+                        tiempo=reloj + 1,
+                        tipo="FIN_TAREA",
+                        tarea_id=tarea_actual.id,
+                        servidor_id=servidor.id,
+                        detalle=(
+                            f"Tarea {tarea_actual.id} completada en Servidor {servidor.id}"
+                        ),
+                    )
+                )
                 if servidor.cola:
-                    sig_tarea = servidor.cola[0][0]
-                    if sig_tarea.id not in inicio_proceso:
-                        inicio_proceso[sig_tarea.id] = reloj + 1
+                    siguiente = servidor.cola[0][0]
+                    if siguiente.id not in inicio_proceso:
+                        inicio_proceso[siguiente.id] = reloj + 1
+            else:
+                servidor.cola[0] = (tarea_actual, nuevo_restante)
 
-                # Verificar recuperación de sobrecarga
-                if (servidor.estado == EstadoServidor.SOBRECARGADO and
-                        servidor.carga <= umbral_sobrecarga):
-                    servidor.estado = EstadoServidor.ACTIVO
-                    eventos.append(Evento(
+        for servidor in servidores:
+            if (
+                servidor.estado == EstadoServidor.SOBRECARGADO
+                and servidor.carga <= umbral_sobrecarga
+            ):
+                servidor.estado = EstadoServidor.ACTIVO
+                eventos.append(
+                    Evento(
                         tiempo=reloj,
                         tipo="RECUPERACION",
                         tarea_id=-1,
                         servidor_id=servidor.id,
                         detalle=(
-                            f"Servidor {servidor.id} recuperado "
-                            f"(carga={servidor.carga:.1f})"
+                            f"Servidor {servidor.id} recuperado (carga={servidor.carga:.1f})"
                         ),
-                    ))
-                    logger.info(
-                        f"[t={reloj}] Servidor {servidor.id} RECUPERADO "
-                        f"(carga={servidor.carga:.1f})"
                     )
-            else:
-                servidor.cola[0] = (tarea_actual, restante)
+                )
 
         reloj += 1
-
-        # Límite de seguridad para evitar bucles infinitos
         if reloj > 100_000:
             raise RuntimeError(
                 "La simulación excedió el límite de 100,000 ticks; "
                 "no se generará un resultado incompleto."
             )
 
-    # ── Calcular makespan ──
-    makespan = max((r.tiempo_fin + 1 for r in registros), default=0)
-
-    # Contar tareas reasignadas desde los registros
-    tareas_reasignadas_count = sum(1 for r in registros if r.reasignada)
-
-    logger.info(
-        f"Simulación completada: makespan={makespan}, "
-        f"tareas_procesadas={len(registros)}, "
-        f"tareas_reasignadas={tareas_reasignadas_count}"
-    )
+    makespan = max((registro.tiempo_fin for registro in registros), default=0)
+    tareas_reasignadas = sum(1 for registro in registros if registro.reasignada)
 
     return ResultadoSimulacion(
         eventos=eventos,
@@ -383,7 +360,7 @@ def ejecutar_simulacion(
         makespan=makespan,
         nombre_estrategia=nombre_estrategia,
         nombre_escenario=nombre_escenario,
-        tareas_reasignadas=tareas_reasignadas_count,
+        tareas_reasignadas=tareas_reasignadas,
     )
 
 

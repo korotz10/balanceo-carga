@@ -80,22 +80,7 @@ class EstrategiaAsignacion(ABC):
 
 
 class RoundRobin(EstrategiaAsignacion):
-    """
-    Estrategia Round Robin (por turnos) — ESTÁTICA.
-
-    Asigna las tareas en orden circular entre los servidores disponibles.
-    No considera la carga actual de los servidores; solo sigue el turno.
-    Si un servidor está caído o sobrecargado, lo salta.
-
-    Ventajas:
-    - Simple de implementar y entender.
-    - Distribución equitativa cuando las tareas tienen duración similar.
-
-    Limitaciones:
-    - No se adapta a servidores con distinta capacidad.
-    - No se adapta a tareas con distinta duración.
-    - Puede sobrecargar servidores lentos.
-    """
+    """Round robin circular sobre los servidores disponibles."""
 
     def __init__(self) -> None:
         self._ultimo_servidor_id: int | None = None
@@ -107,15 +92,20 @@ class RoundRobin(EstrategiaAsignacion):
     def asignar(self, tarea: Tarea, servidores: list[Servidor]) -> Servidor:
         self._validar_servidores(servidores)
         ordenados = sorted(servidores, key=lambda servidor: servidor.id)
-        servidor = next(
-            (
-                candidato
-                for candidato in ordenados
-                if self._ultimo_servidor_id is None
-                or candidato.id > self._ultimo_servidor_id
-            ),
-            ordenados[0],
-        )
+        ids = [servidor.id for servidor in ordenados]
+
+        if self._ultimo_servidor_id is None:
+            servidor = ordenados[0]
+        else:
+            if self._ultimo_servidor_id in ids:
+                indice_actual = ids.index(self._ultimo_servidor_id)
+                servidor = ordenados[(indice_actual + 1) % len(ordenados)]
+            else:
+                servidor = next(
+                    (servidor_disponible for servidor_disponible in ordenados if servidor_disponible.id > self._ultimo_servidor_id),
+                    ordenados[0],
+                )
+
         self._ultimo_servidor_id = servidor.id
         return servidor
 

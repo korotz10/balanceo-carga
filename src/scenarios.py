@@ -18,15 +18,16 @@ distribuidos:
 
 import copy
 import logging
+from collections.abc import Sequence
 from src.models import Servidor, Tarea
 from src.algorithms import (
-    EstrategiaAsignacion, RoundRobin, MenorCarga, Aleatoria, crear_estrategia,
+    EstrategiaAsignacion, RoundRobin, MenorCarga, Aleatoria,
 )
 from src.engine import (
     ejecutar_simulacion, ConfiguracionFalla, ResultadoSimulacion,
 )
 from src.task_generator import generar_tareas
-from src import config
+from src.parameters import ParametrosSimulacion
 
 logger = logging.getLogger(__name__)
 
@@ -70,20 +71,15 @@ def crear_servidores_sobrecarga(
 def ejecutar_escenario_a(
     tareas: list[Tarea],
     estrategia: EstrategiaAsignacion,
-    umbral: float,
+    parametros: ParametrosSimulacion,
 ) -> ResultadoSimulacion:
-    """
-    Escenario A — Operación normal.
-
-    4 servidores iguales, sin fallas ni sobrecarga artificial.
-    Es la línea base para comparar las estrategias.
-    """
-    servidores = crear_servidores_normales(config.NUM_SERVIDORES)
+    """Escenario A: operación normal con servidores homogéneos."""
+    servidores = crear_servidores_normales(parametros.num_servidores)
     return ejecutar_simulacion(
         tareas=tareas,
         servidores=servidores,
         estrategia=estrategia,
-        umbral_sobrecarga=umbral,
+        umbral_sobrecarga=parametros.umbral_sobrecarga,
         nombre_escenario="A - Normal",
     )
 
@@ -91,34 +87,19 @@ def ejecutar_escenario_a(
 def ejecutar_escenario_b(
     tareas: list[Tarea],
     estrategia: EstrategiaAsignacion,
-    umbral: float,
+    parametros: ParametrosSimulacion,
 ) -> ResultadoSimulacion:
-    """
-    Escenario B — Sobrecarga por capacidad reducida.
-
-    Un servidor tiene capacidad reducida (por defecto 0.5), lo que
-    simula un nodo más lento. El mecanismo de sobrecarga se activa:
-    cuando la carga del servidor excede el umbral, deja de recibir
-    tareas hasta que su cola baje.
-
-    Observaciones esperadas:
-    - Round Robin: envía tareas al servidor lento por turno, causando
-      sobrecarga recurrente.
-    - Menor Carga: evita naturalmente el servidor lento porque su
-      carga estimada es mayor.
-    - Aleatoria: envía ~25% de tareas al servidor lento, causando
-      sobrecarga intermitente.
-    """
+    """Escenario B: un servidor lento con capacidad reducida."""
     servidores = crear_servidores_sobrecarga(
-        n=config.NUM_SERVIDORES,
-        servidor_lento=config.SERVIDOR_FALLA,
-        capacidad_reducida=config.CAPACIDAD_REDUCIDA,
+        n=parametros.num_servidores,
+        servidor_lento=parametros.servidor_lento,
+        capacidad_reducida=parametros.capacidad_reducida,
     )
     return ejecutar_simulacion(
         tareas=tareas,
         servidores=servidores,
         estrategia=estrategia,
-        umbral_sobrecarga=umbral,
+        umbral_sobrecarga=parametros.umbral_sobrecarga,
         nombre_escenario="B - Sobrecarga",
     )
 
@@ -126,30 +107,19 @@ def ejecutar_escenario_b(
 def ejecutar_escenario_c(
     tareas: list[Tarea],
     estrategia: EstrategiaAsignacion,
-    umbral: float,
+    parametros: ParametrosSimulacion,
 ) -> ResultadoSimulacion:
-    """
-    Escenario C — Falla de un servidor.
-
-    Después de asignar TAREA_FALLA tareas, el servidor SERVIDOR_FALLA
-    pasa a estado CAIDO. Sus tareas pendientes (con su trabajo restante,
-    no la duración original) se reasignan a los servidores activos.
-
-    Verificaciones clave:
-    - Ninguna tarea se pierde: la suma de completadas debe ser igual
-      al total de tareas.
-    - Las tareas parcialmente procesadas conservan su progreso.
-    """
-    servidores = crear_servidores_normales(config.NUM_SERVIDORES)
+    """Escenario C: fallo de un servidor y reasignación."""
+    servidores = crear_servidores_normales(parametros.num_servidores)
     config_falla = ConfiguracionFalla(
-        tarea_trigger=config.TAREA_FALLA,
-        servidor_id=config.SERVIDOR_FALLA,
+        tarea_trigger=parametros.tarea_falla,
+        servidor_id=parametros.servidor_falla,
     )
     return ejecutar_simulacion(
         tareas=tareas,
         servidores=servidores,
         estrategia=estrategia,
-        umbral_sobrecarga=umbral,
+        umbral_sobrecarga=parametros.umbral_sobrecarga,
         config_falla=config_falla,
         nombre_escenario="C - Falla",
     )
@@ -168,87 +138,100 @@ ResultadosPorCombinacion = dict[
 
 
 def ejecutar_todos(
-    semilla: int | None = None,
-    repeticiones_aleatoria: int | None = None,
+    parametros: ParametrosSimulacion,
+    escenarios_solicitados: Sequence[str] | None = None,
+    estrategias_solicitadas: Sequence[str] | None = None,
 ) -> ResultadosPorCombinacion:
-    """
-    Ejecuta todas las combinaciones de escenarios y estrategias.
+    """Ejecuta cada escenario y estrategia sobre los mismos conjuntos de tareas."""
+    parametros.validar()
 
-    Para las estrategias deterministas (Round Robin, Menor Carga),
-    se ejecuta una sola vez con la semilla de tareas configurada.
-
-    Para la estrategia Aleatoria, se ejecuta REPETICIONES_ALEATORIA
-    veces con semillas distintas (semilla_base + i) y se guarda
-    la lista completa de resultados para calcular promedio y
-    desviación estándar.
-
-    Returns:
-        Diccionario con clave (nombre_escenario, nombre_estrategia)
-        y valor ResultadoSimulacion o list[ResultadoSimulacion].
-    """
-    semilla = config.SEMILLA if semilla is None else semilla
-    repeticiones = (
-        config.REPETICIONES_ALEATORIA
-        if repeticiones_aleatoria is None
-        else repeticiones_aleatoria
-    )
-    if repeticiones <= 0:
-        raise ValueError("repeticiones_aleatoria debe ser mayor que 0")
-    umbral = config.UMBRAL_SOBRECARGA
-
-    # Generar las tareas una sola vez (misma semilla para todas las estrategias)
-    tareas_base = generar_tareas(
-        cantidad=config.NUM_TAREAS,
-        duracion_min=config.DURACION_MIN,
-        duracion_max=config.DURACION_MAX,
-        semilla=semilla,
-        intervalo_llegada=config.INTERVALO_LLEGADA,
-    )
-
-    # Funciones de escenario
     escenarios = {
         "A - Normal": ejecutar_escenario_a,
         "B - Sobrecarga": ejecutar_escenario_b,
         "C - Falla": ejecutar_escenario_c,
     }
+    estrategias = {
+        "round_robin": lambda semilla: RoundRobin(),
+        "menor_carga": lambda semilla: MenorCarga(),
+        "aleatoria": lambda semilla: Aleatoria(semilla=semilla),
+    }
+    nombres_escenario = {
+        "a": "A - Normal",
+        "a - normal": "A - Normal",
+        "normal": "A - Normal",
+        "b": "B - Sobrecarga",
+        "b - sobrecarga": "B - Sobrecarga",
+        "sobrecarga": "B - Sobrecarga",
+        "c": "C - Falla",
+        "c - falla": "C - Falla",
+        "falla": "C - Falla",
+    }
 
-    resultados: ResultadosPorCombinacion = {}
-
-    for nombre_escenario, func_escenario in escenarios.items():
-        logger.info(f"{'='*60}")
-        logger.info(f"Escenario: {nombre_escenario}")
-        logger.info(f"{'='*60}")
-
-        # ── Estrategias deterministas ──
-        for nombre_est in ["round_robin", "menor_carga"]:
-            estrategia = crear_estrategia(nombre_est, semilla=semilla)
-            # Copiar tareas para que cada ejecución sea independiente
-            tareas_copia = copy.deepcopy(tareas_base)
-            resultado = func_escenario(tareas_copia, estrategia, umbral)
-            clave = (nombre_escenario, resultado.nombre_estrategia)
-            resultados[clave] = resultado
-            logger.info(
-                f"  {resultado.nombre_estrategia}: "
-                f"makespan={resultado.makespan}, "
-                f"completadas={len(resultado.registros)}"
+    escenarios_elegidos = list(escenarios)
+    if escenarios_solicitados:
+        escenarios_elegidos = []
+        escenarios_desconocidos: list[str] = []
+        for clave in escenarios_solicitados:
+            normalizada = clave.strip().casefold()
+            nombre = nombres_escenario.get(normalizada)
+            if nombre is None:
+                escenarios_desconocidos.append(clave)
+            elif nombre not in escenarios_elegidos:
+                escenarios_elegidos.append(nombre)
+        if escenarios_desconocidos:
+            opciones = ", ".join(sorted(nombres_escenario))
+            raise ValueError(
+                f"Escenario(s) no reconocido(s): {escenarios_desconocidos}. "
+                f"Opciones válidas: {opciones}"
             )
 
-        # ── Estrategia aleatoria: múltiples ejecuciones ──
-        resultados_aleatoria: list[ResultadoSimulacion] = []
-        for i in range(repeticiones):
-            semilla_i = semilla + i
-            estrategia = Aleatoria(semilla=semilla_i)
-            tareas_copia = copy.deepcopy(tareas_base)
-            resultado = func_escenario(tareas_copia, estrategia, umbral)
-            resultados_aleatoria.append(resultado)
+    estrategias_elegidas = (
+        list(estrategias_solicitadas)
+        if estrategias_solicitadas
+        else list(estrategias)
+    )
 
-        clave = (nombre_escenario, "Aleatoria")
-        resultados[clave] = resultados_aleatoria
-        makespans = [r.makespan for r in resultados_aleatoria]
-        promedio = sum(makespans) / len(makespans)
-        logger.info(
-            f"  Aleatoria ({repeticiones} ejecuciones): "
-            f"makespan promedio={promedio:.1f}"
+    desconocidos_estrategias = set(estrategias_elegidas) - set(estrategias)
+    if desconocidos_estrategias:
+        raise ValueError(
+            f"Estrategia(s) no reconocida(s): {sorted(desconocidos_estrategias)}. "
+            f"Opciones válidas: {sorted(estrategias)}"
         )
+
+    resultados: ResultadosPorCombinacion = {}
+    for nombre_escenario in escenarios_elegidos:
+        for nombre_estrategia in estrategias_elegidas:
+            resultados[(nombre_escenario, nombre_estrategia)] = []
+
+    for indice in range(parametros.repeticiones):
+        semilla_tareas = parametros.semilla + indice
+        tareas = generar_tareas(
+            cantidad=parametros.num_tareas,
+            duracion_min=parametros.duracion_min,
+            duracion_max=parametros.duracion_max,
+            semilla=semilla_tareas,
+            intervalo_llegada=parametros.intervalo_llegada,
+        )
+        for nombre_escenario in escenarios_elegidos:
+            func_escenario = escenarios[nombre_escenario]
+            for nombre_estrategia in estrategias_elegidas:
+                semilla_estrategia = parametros.semilla + indice + (1_000 if nombre_estrategia == "aleatoria" else 0)
+                estrategia = estrategias[nombre_estrategia](semilla_estrategia)
+                resultado = func_escenario(
+                    copy.deepcopy(tareas),
+                    estrategia,
+                    parametros,
+                )
+                resultados[(nombre_escenario, nombre_estrategia)].append(resultado)
+
+    for clave, ejecuciones in resultados.items():
+        if ejecuciones:
+            logger.info(
+                "%s / %s (%s corridas): makespan promedio=%.1f",
+                clave[0],
+                clave[1],
+                len(ejecuciones),
+                sum(resultado.makespan for resultado in ejecuciones) / len(ejecuciones),
+            )
 
     return resultados

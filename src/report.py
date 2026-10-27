@@ -19,6 +19,15 @@ logger = logging.getLogger(__name__)
 
 def _resumen(resultados: ResultadosPorCombinacion) -> pd.DataFrame:
     filas: list[dict[str, Any]] = []
+    metricas_promediables = (
+        "makespan",
+        "desviacion_estandar_carga",
+        "tiempo_espera_promedio",
+        "tareas_reasignadas",
+        "sobrecargas_total",
+        "tiempo_espera_cola_promedio",
+        "tiempo_espera_cola_maximo",
+    )
     for (escenario, estrategia), valor in resultados.items():
         ejecuciones = valor if isinstance(valor, list) else [valor]
         datos = [calcular_metricas(resultado) for resultado in ejecuciones]
@@ -27,27 +36,32 @@ def _resumen(resultados: ResultadosPorCombinacion) -> pd.DataFrame:
             "estrategia": estrategia,
             "ejecuciones": len(ejecuciones),
             "tareas_completadas": min(dato["tareas_completadas"] for dato in datos),
-            "makespan_promedio": sum(dato["makespan"] for dato in datos) / len(datos),
-            "espera_promedio": sum(
-                dato["tiempo_espera_promedio"] for dato in datos
-            ) / len(datos),
-            "desviacion_estandar_carga_promedio": sum(
-                dato["desviacion_estandar_carga"] for dato in datos
-            ) / len(datos),
-            "tareas_reasignadas_promedio": sum(
-                dato["tareas_reasignadas"] for dato in datos
-            ) / len(datos),
         }
+        for metrica in metricas_promediables:
+            valores = [dato[metrica] for dato in datos]
+            resumen[f"{metrica}_promedio"] = sum(valores) / len(valores)
+            resumen[f"{metrica}_desviacion"] = (
+                float(pd.Series(valores).std(ddof=0)) if len(valores) > 1 else 0.0
+            )
         max_servidor = max(
             (len(dato["carga_por_servidor"]) for dato in datos), default=0
         )
         for servidor_id in range(max_servidor):
-            resumen[f"tareas_servidor_{servidor_id}"] = sum(
+            resumen[f"tareas_servidor_{servidor_id}_promedio"] = sum(
                 dato["tareas_por_servidor"].get(servidor_id, 0) for dato in datos
             ) / len(datos)
-            resumen[f"carga_servidor_{servidor_id}"] = sum(
+            resumen[f"carga_servidor_{servidor_id}_promedio"] = sum(
                 dato["carga_por_servidor"].get(servidor_id, 0) for dato in datos
             ) / len(datos)
+            resumen[f"sobrecargas_servidor_{servidor_id}_promedio"] = sum(
+                dato["sobrecargas_por_servidor"].get(servidor_id, 0)
+                for dato in datos
+            ) / len(datos)
+        resumen["sobrecargas_por_servidor_promedio"] = "; ".join(
+            f"S{servidor_id}: "
+            f"{resumen[f'sobrecargas_servidor_{servidor_id}_promedio']:.2f}"
+            for servidor_id in range(max_servidor)
+        )
         filas.append(resumen)
     return pd.DataFrame(filas)
 
@@ -87,15 +101,18 @@ def generar_graficas(
 
     for escenario, datos in tabla.groupby("escenario", sort=False):
         ids = sorted(
-            int(columna.removeprefix("carga_servidor_"))
+            int(columna.removeprefix("carga_servidor_").removesuffix("_promedio"))
             for columna in datos.columns
-            if columna.startswith("carga_servidor_")
+            if columna.startswith("carga_servidor_") and columna.endswith("_promedio")
         )
         fig, ax = plt.subplots(figsize=(9, 5))
         ancho = 0.8 / max(len(datos), 1)
         posiciones = list(range(len(ids)))
         for indice, (_, fila) in enumerate(datos.iterrows()):
-            valores = [fila.get(f"carga_servidor_{servidor}", 0) for servidor in ids]
+            valores = [
+                fila.get(f"carga_servidor_{servidor}_promedio", 0)
+                for servidor in ids
+            ]
             desplazamiento = (indice - (len(datos) - 1) / 2) * ancho
             ax.bar(
                 [posicion + desplazamiento for posicion in posiciones],

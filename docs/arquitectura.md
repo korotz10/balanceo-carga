@@ -1,50 +1,58 @@
 # Arquitectura
 
-## Flujo de datos
+## Diagrama general
 
 ```mermaid
 flowchart TD
-    A[config.py / .env] --> B[task_generator.py]
-    B --> C[scenarios.py]
-    C --> D[algorithms.py]
-    D --> E[engine.py]
-    E --> F[models.py: colas FIFO]
-    E --> G[metrics.py]
-    G --> H[report.py]
-    H --> I[CSV, Excel y PNG]
-    J[main.py / argparse] --> C
-    J --> H
+    A[.env / src/config.py] --> B[ParametrosSimulacion]
+    B --> C[task_generator.py\nGenera tareas con semilla]
+    C --> D[scenarios.py\nA / B / C]
+    B --> D
+    D --> E[algorithms.py\nRound Robin\nMenor Carga\nAleatoria]
+    D --> F[servers\ncolas FIFO y estados]
+    E --> G[engine.py\nreloj discreto]
+    F --> G
+    G --> H[metrics.py\nSobrecargas, espera y makespan]
+    H --> I[report.py\nCSV / Excel / PNG]
+    J[main.py / dashboard.py] --> D
+    J --> I
 ```
 
-`main.py` valida la configuración, genera el mismo conjunto reproducible de
-tareas y selecciona uno o todos los escenarios y algoritmos. `scenarios.py`
-crea los servidores específicos y delega el procesamiento a `engine.py`.
-Este avanza un reloj discreto y registra cada evento. Finalmente,
-`metrics.py` calcula las medidas y `report.py` las exporta.
+El flujo comienza en `config.py` y `.env`, que construyen los parámetros de la
+simulación. `task_generator.py` crea un conjunto reproducible de tareas con
+semillas fijas y tiempos de llegada escalonados. A partir de ahí, `scenarios.py`
+construye los servidores según el caso (normal, lenta o caída) y delega la
+ejecución al motor de simulación `engine.py`. La estrategia elegida vive en
+`algorithms.py` y decide a qué servidor se asigna cada tarea. `metrics.py`
+calcula el balance, tiempos de espera y eventos de sobrecarga, y `report.py`
+exporta los resultados a CSV, Excel y gráficas.
 
 ## Flujo normal
 
-En cada instante llegan las tareas correspondientes. El algoritmo elige un
-servidor activo y la tarea se agrega a su cola FIFO. Cada servidor procesa el
-frente de su cola a una velocidad determinada por su capacidad. El motor
-registra asignación, inicio y finalización. Una carga superior al umbral
-marca temporalmente al servidor como sobrecargado: sigue procesando, pero no
-recibe nuevas tareas hasta recuperarse.
+En cada tick del reloj, el motor revisa si llegan nuevas tareas en ese instante.
+Cada una se asigna a un servidor disponible mediante la estrategia elegida; si
+ningún servidor está libre, la tarea queda en cola de espera. El servidor
+procesa su cola FIFO usando su capacidad. Cuando la carga supera el umbral,
+se marca como `SOBRECARGADO` y deja de recibir nuevas tareas hasta recuperar su
+carga. La recuperación se revisa en cada tick, por lo que vuelve a `ACTIVO`
+cuando la carga vuelve a estar por debajo del umbral.
 
-## Flujo ante falla
+## Flujo ante caída
 
-En el escenario C, al alcanzar el número configurado de asignaciones, se
-marca como caído el servidor seleccionado. Las tareas todavía pendientes en
-su cola se ponen en espera; la tarea que estaba en proceso conserva el
-trabajo que le faltaba. El algoritmo las asigna de nuevo a servidores activos
-y el motor registra los eventos de caída y reasignación. Una ejecución sin
-servidores capaces de continuar falla explícitamente en lugar de producir un
-resultado incompleto.
+En el escenario C, cuando se alcanza la tarea configurada, el servidor
+seleccionado pasa a `CAIDO`. Las tareas pendientes de su cola conservan el
+trabajo restante y se reencolan para reasignación. El motor registra un evento
+`CAIDA` y un evento de reasignación para cada tarea restante. Las tareas ya
+procesadas no se pierden, y cualquier trabajo pendiente se reutiliza en la
+nueva asignación. Si al final no queda ningún servidor activo y siguen existiendo
+trabajos pendientes, la simulación falla explícitamente en lugar de devolver un
+resultado parcial.
 
 ## Métricas y reportes
 
-Las tareas por servidor se cuentan por finalización (cada tarea aparece una
-vez, incluso si se reasignó). La carga por servidor suma las duraciones
-originales de las tareas finalizadas en ese servidor. El makespan es el
-tiempo transcurrido hasta la última finalización, contando el tick final.
-Los reportes reúnen promedios para las repeticiones aleatorias.
+La métrica de makespan se calcula como el último instante de finalización. La
+carga por servidor se obtiene a partir del trabajo pendiente y la capacidad del
+servidor. Además, se registran la sobrecarga por nodo, el tiempo medio en cola
+y el tiempo máximo de espera cuando no había servidores disponibles. Los reportes
+finales agrupan las repeticiones para calcular el promedio y la desviación
+estándar de cada métrica.

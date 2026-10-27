@@ -10,6 +10,7 @@ ajustar el comportamiento del sistema sin modificar el código fuente.
 
 import os
 import logging
+from src.parameters import ParametrosSimulacion
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -48,44 +49,38 @@ def _leer_float(nombre: str, valor_defecto: float) -> float:
         return valor_defecto
 
 
-# --- Parámetros de la simulación ---
-NUM_TAREAS: int = _leer_int("NUM_TAREAS", 100)
-NUM_SERVIDORES: int = _leer_int("NUM_SERVIDORES", 4)
-DURACION_MIN: int = _leer_int("DURACION_MIN", 1)
-DURACION_MAX: int = _leer_int("DURACION_MAX", 10)
-SEMILLA: int = _leer_int("SEMILLA", 42)
-INTERVALO_LLEGADA: int = _leer_int("INTERVALO_LLEGADA", 2)
-UMBRAL_SOBRECARGA: float = _leer_float("UMBRAL_SOBRECARGA", 15.0)
-TAREA_FALLA: int = _leer_int("TAREA_FALLA", 50)
-SERVIDOR_FALLA: int = _leer_int("SERVIDOR_FALLA", 2)
-CAPACIDAD_REDUCIDA: float = _leer_float("CAPACIDAD_REDUCIDA", 0.5)
-REPETICIONES_ALEATORIA: int = _leer_int("REPETICIONES_ALEATORIA", 30)
+def crear_parametros_por_defecto() -> ParametrosSimulacion:
+    """Construye parámetros iniciales desde `.env` o los valores predeterminados.
+
+    Se eligen INTERVALO_LLEGADA = 2 y UMBRAL_SOBRECARGA = 12 para equilibrar
+    la intensidad de carga con la capacidad disponible:
+
+        duracion_media ≈ (1 + 10) / 2 = 5.5
+        utilizacion_A ≈ 5.5 / (4 * 2) = 0.6875 ≈ 68.75%
+        utilizacion_C ≈ 5.5 / (3 * 2) = 0.9167 ≈ 91.67%
+        utilizacion_B ≈ 5.5 / (3.5 * 2) = 0.7857 ≈ 78.57%
+
+    La idea es mantener el escenario A en el rango 60-70 % y acercar B/C a 80-90 %
+    sin saturar permanentemente el sistema. El umbral de sobrecarga se fija en 12,
+    que equivale aproximadamente a dos tareas promedio por servidor, suficiente para
+    detectar congestión sin bloquear cada nodo indefinidamente.
+    """
+    parametros = ParametrosSimulacion(
+        num_tareas=_leer_int("NUM_TAREAS", 100),
+        num_servidores=_leer_int("NUM_SERVIDORES", 4),
+        duracion_min=_leer_int("DURACION_MIN", 1),
+        duracion_max=_leer_int("DURACION_MAX", 10),
+        intervalo_llegada=_leer_int("INTERVALO_LLEGADA", 2),
+        umbral_sobrecarga=_leer_float("UMBRAL_SOBRECARGA", 12.0),
+        tarea_falla=_leer_int("TAREA_FALLA", 50),
+        servidor_falla=_leer_int("SERVIDOR_FALLA", 2),
+        servidor_lento=_leer_int("SERVIDOR_LENTO", 2),
+        capacidad_reducida=_leer_float("CAPACIDAD_REDUCIDA", 0.5),
+        semilla=_leer_int("SEMILLA", 42),
+        repeticiones=_leer_int("REPETICIONES", 30),
+    )
+    parametros.validar()
+    return parametros
 
 
-def validar_configuracion() -> None:
-    """Valida que los parámetros de configuración sean coherentes."""
-    errores: list[str] = []
-    if NUM_TAREAS <= 0:
-        errores.append("NUM_TAREAS debe ser mayor que 0")
-    if NUM_SERVIDORES <= 0:
-        errores.append("NUM_SERVIDORES debe ser mayor que 0")
-    if DURACION_MIN <= 0:
-        errores.append("DURACION_MIN debe ser mayor que 0")
-    if DURACION_MAX < DURACION_MIN:
-        errores.append("DURACION_MAX debe ser >= DURACION_MIN")
-    if INTERVALO_LLEGADA <= 0:
-        errores.append("INTERVALO_LLEGADA debe ser mayor que 0")
-    if UMBRAL_SOBRECARGA <= 0:
-        errores.append("UMBRAL_SOBRECARGA debe ser mayor que 0")
-    if CAPACIDAD_REDUCIDA <= 0 or CAPACIDAD_REDUCIDA >= 1.0:
-        errores.append("CAPACIDAD_REDUCIDA debe estar entre 0 (exclusivo) y 1 (exclusivo)")
-    if REPETICIONES_ALEATORIA <= 0:
-        errores.append("REPETICIONES_ALEATORIA debe ser mayor que 0")
-    if SERVIDOR_FALLA < 0 or SERVIDOR_FALLA >= NUM_SERVIDORES:
-        errores.append(f"SERVIDOR_FALLA debe estar entre 0 y {NUM_SERVIDORES - 1}")
-    if TAREA_FALLA <= 0 or TAREA_FALLA > NUM_TAREAS:
-        errores.append(f"TAREA_FALLA debe estar entre 1 y {NUM_TAREAS}")
-
-    if errores:
-        mensaje = "Errores de configuración:\n" + "\n".join(f"  - {e}" for e in errores)
-        raise ValueError(mensaje)
+PARAMETROS_POR_DEFECTO = crear_parametros_por_defecto()

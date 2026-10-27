@@ -2,33 +2,12 @@
 
 import argparse
 import logging
+from dataclasses import replace
 from pathlib import Path
-from collections.abc import Callable
 
 from src import config
-from src.algorithms import Aleatoria, EstrategiaAsignacion, crear_estrategia
-from src.engine import ResultadoSimulacion
-from src.models import Tarea
-from src.scenarios import (
-    ResultadosPorCombinacion,
-    ejecutar_escenario_a,
-    ejecutar_escenario_b,
-    ejecutar_escenario_c,
-    ejecutar_todos,
-)
-from src.task_generator import generar_tareas
 from src.report import generar_csv, generar_excel, generar_graficas
-
-EjecutorEscenario = Callable[
-    [list[Tarea], EstrategiaAsignacion, float],
-    ResultadoSimulacion,
-]
-ESCENARIOS: dict[str, tuple[str, EjecutorEscenario]] = {
-    "a": ("A - Normal", ejecutar_escenario_a),
-    "b": ("B - Sobrecarga", ejecutar_escenario_b),
-    "c": ("C - Falla", ejecutar_escenario_c),
-}
-ESTRATEGIAS = ("round_robin", "menor_carga", "aleatoria")
+from src.scenarios import ResultadosPorCombinacion, ejecutar_todos
 
 
 def _argumentos() -> argparse.Namespace:
@@ -37,13 +16,13 @@ def _argumentos() -> argparse.Namespace:
     )
     parser.add_argument(
         "--escenario",
-        choices=(*ESCENARIOS, "all"),
+        choices=("a", "b", "c", "all"),
         default="a",
         help="Escenario: a (normal), b (sobrecarga), c (falla) o all.",
     )
     parser.add_argument(
         "--estrategia",
-        choices=(*ESTRATEGIAS, "all"),
+        choices=("round_robin", "menor_carga", "aleatoria", "all"),
         default="round_robin",
         help="Estrategia de asignación o all.",
     )
@@ -51,12 +30,12 @@ def _argumentos() -> argparse.Namespace:
         "--semilla",
         type=int,
         default=None,
-        help="Semilla para generación de tareas y estrategia aleatoria.",
+        help="Semilla base para las corridas reproducibles.",
     )
     parser.add_argument(
         "--all",
         action="store_true",
-        help="Ejecuta las nueve combinaciones y repite la estrategia aleatoria.",
+        help="Ejecuta todas las combinaciones y repeticiones configuradas.",
     )
     parser.add_argument(
         "--resultados",
@@ -68,46 +47,20 @@ def _argumentos() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _ejecutar_seleccion(
-    escenario: str,
-    estrategia_nombre: str,
-    semilla: int,
+def ejecutar_desde_parametros(
+    parametros,
+    escenario: str = "all",
+    estrategia: str = "all",
 ) -> ResultadosPorCombinacion:
-    tareas = generar_tareas(
-        cantidad=config.NUM_TAREAS,
-        duracion_min=config.DURACION_MIN,
-        duracion_max=config.DURACION_MAX,
-        semilla=semilla,
-        intervalo_llegada=config.INTERVALO_LLEGADA,
+    """Ejecuta la selección solicitada usando el mismo motor que el panel."""
+    parametros.validar()
+    escenarios_solicitados = None if escenario == "all" else [escenario]
+    estrategias_solicitadas = None if estrategia == "all" else [estrategia]
+    return ejecutar_todos(
+        parametros,
+        escenarios_solicitados=escenarios_solicitados,
+        estrategias_solicitadas=estrategias_solicitadas,
     )
-    resultados: ResultadosPorCombinacion = {}
-    escenarios = list(ESCENARIOS) if escenario == "all" else [escenario]
-    estrategias = list(ESTRATEGIAS) if estrategia_nombre == "all" else [estrategia_nombre]
-    for escenario_id in escenarios:
-        nombre_escenario, ejecutar = ESCENARIOS[escenario_id]
-        for nombre_estrategia in estrategias:
-            repeticiones = (
-                config.REPETICIONES_ALEATORIA
-                if nombre_estrategia == "aleatoria"
-                else 1
-            )
-            ejecuciones: list[ResultadoSimulacion] = []
-            for indice in range(repeticiones):
-                estrategia = (
-                    Aleatoria(semilla + indice)
-                    if nombre_estrategia == "aleatoria"
-                    else crear_estrategia(nombre_estrategia, semilla)
-                )
-                resultado = ejecutar(
-                    tareas,
-                    estrategia,
-                    config.UMBRAL_SOBRECARGA,
-                )
-                ejecuciones.append(resultado)
-            resultados[(nombre_escenario, ejecuciones[0].nombre_estrategia)] = (
-                ejecuciones if len(ejecuciones) > 1 else ejecuciones[0]
-            )
-    return resultados
 
 
 def main() -> int:
@@ -116,18 +69,16 @@ def main() -> int:
         level=logging.DEBUG if argumentos.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    config.validar_configuracion()
-    semilla = config.SEMILLA if argumentos.semilla is None else argumentos.semilla
+    parametros = config.PARAMETROS_POR_DEFECTO
+    if argumentos.semilla is not None:
+        parametros = replace(parametros, semilla=argumentos.semilla)
+    parametros.validar()
 
-    if argumentos.all:
-        resultados = ejecutar_todos(semilla=semilla)
-    else:
-        resultados = _ejecutar_seleccion(
-            argumentos.escenario,
-            argumentos.estrategia,
-            semilla,
-        )
-
+    resultados = ejecutar_desde_parametros(
+        parametros,
+        escenario="all" if argumentos.all else argumentos.escenario,
+        estrategia="all" if argumentos.all else argumentos.estrategia,
+    )
     argumentos.resultados.mkdir(parents=True, exist_ok=True)
     generar_csv(resultados, argumentos.resultados / "resumen.csv")
     generar_excel(resultados, argumentos.resultados / "resumen.xlsx")
