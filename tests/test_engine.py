@@ -116,6 +116,25 @@ def test_metrics_count_overload_and_time_waiting_for_available_server():
     assert metricas["tiempo_espera_cola_maximo"] == 1
 
 
+def test_metrics_track_consumed_work_and_occupancy_balance():
+    tareas = [
+        Tarea(id=0, duracion=3),
+        Tarea(id=1, duracion=2),
+        Tarea(id=2, duracion=4),
+    ]
+    resultado = ejecutar_simulacion(
+        tareas,
+        [Servidor(id=0), Servidor(id=1, capacidad=0.5)],
+        RoundRobin(),
+        nombre_escenario="B - Sobrecarga",
+    )
+    metricas = calcular_metricas(resultado)
+
+    assert abs(sum(servidor.trabajo_procesado for servidor in resultado.servidores) - sum(t.duracion for t in tareas)) < 1e-9
+    assert "desviacion_ocupacion" in metricas
+    assert metricas["desviacion_ocupacion"] >= 0.0
+
+
 def test_server_recovers_below_threshold_before_finishing_its_task():
     resultado = ejecutar_simulacion(
         [Tarea(id=0, duracion=4), Tarea(id=1, duracion=1, tiempo_llegada=2)],
@@ -177,7 +196,9 @@ def test_every_strategy_completes_every_task_in_all_scenarios():
             )
             metricas = calcular_metricas(resultado)
             assert metricas["tareas_completadas"] == parametros.num_tareas
-            assert sum(metricas["carga_por_servidor"].values()) == (
+            assert sum(
+                servidor.trabajo_procesado for servidor in resultado.servidores
+            ) == pytest.approx(
                 cargas_totales_esperadas[indice]
             )
             if resultado.nombre_escenario == "C - Falla":

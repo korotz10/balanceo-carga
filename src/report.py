@@ -23,6 +23,7 @@ def _resumen(resultados: ResultadosPorCombinacion) -> pd.DataFrame:
     metricas_promediables = (
         "makespan",
         "desviacion_estandar_carga",
+        "desviacion_ocupacion",
         "tiempo_espera_promedio",
         "tareas_reasignadas",
         "sobrecargas_total",
@@ -48,9 +49,10 @@ def _resumen(resultados: ResultadosPorCombinacion) -> pd.DataFrame:
             (len(dato["carga_por_servidor"]) for dato in datos), default=0
         )
         for servidor_id in range(max_servidor):
-            resumen[f"tareas_servidor_{servidor_id}_promedio"] = sum(
+            resumen[f"tareas_S{servidor_id}"] = sum(
                 dato["tareas_por_servidor"].get(servidor_id, 0) for dato in datos
             ) / len(datos)
+            resumen[f"tareas_servidor_{servidor_id}_promedio"] = resumen[f"tareas_S{servidor_id}"]
             resumen[f"carga_servidor_{servidor_id}_promedio"] = sum(
                 dato["carga_por_servidor"].get(servidor_id, 0) for dato in datos
             ) / len(datos)
@@ -171,6 +173,12 @@ def generar_graficas(
             "Desviación estándar de carga por estrategia",
             "Desviación estándar",
             "desviacion_carga",
+        ),
+        (
+            "desviacion_ocupacion_promedio",
+            "Desviación de ocupación por estrategia",
+            "Desviación de ocupación",
+            "desviacion_ocupacion",
         ),
         (
             "tiempo_espera_promedio_promedio",

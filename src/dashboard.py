@@ -42,6 +42,9 @@ def _resumen_por_resultado(resultados: dict) -> pd.DataFrame:
             "desviacion_estandar_carga_promedio": sum(
                 m["desviacion_estandar_carga"] for m in metricas
             ) / len(metricas),
+            "desviacion_ocupacion": sum(
+                m["desviacion_ocupacion"] for m in metricas
+            ) / len(metricas),
             "tiempo_espera_promedio": sum(
                 m["tiempo_espera_promedio"] for m in metricas
             ) / len(metricas),
@@ -67,6 +70,7 @@ def _estilos_mejores(tabla: pd.DataFrame) -> pd.DataFrame:
     metricas = (
         "makespan_promedio",
         "desviacion_estandar_carga_promedio",
+        "desviacion_ocupacion",
         "tiempo_espera_promedio",
         "tareas_reasignadas_promedio",
         "sobrecargas_total_promedio",
@@ -95,6 +99,7 @@ def _best_by_metric(tabla: pd.DataFrame) -> dict[str, str]:
     for columna, etiqueta in (
         ("makespan_promedio", "Makespan"),
         ("desviacion_estandar_carga_promedio", "Desviación estándar de carga"),
+        ("desviacion_ocupacion", "Desviación de ocupación"),
         ("tiempo_espera_promedio", "Tiempo promedio de espera"),
         ("tareas_reasignadas_promedio", "Tareas reasignadas"),
         ("sobrecargas_total_promedio", "Sobrecargas"),
@@ -164,6 +169,7 @@ def _plot_metricas_por_estrategia(resultados: dict) -> None:
     etiquetas_metricas = {
         "Makespan": "makespan_promedio",
         "Desviación estándar de carga": "desviacion_estandar_carga_promedio",
+        "Desviación de ocupación": "desviacion_ocupacion",
         "Tiempo promedio de espera": "tiempo_espera_promedio",
         "Sobrecargas totales": "sobrecargas_total_promedio",
     }
@@ -244,6 +250,9 @@ def _eventos_tabla(resultados: dict) -> pd.DataFrame:
     filas = []
     for (escenario, estrategia), ejecuciones in resultados.items():
         for numero_corrida, resultado in enumerate(ejecuciones, start=1):
+            duraciones = {
+                registro.tarea_id: registro.duracion for registro in resultado.registros
+            }
             filas.extend(
                 {
                     "escenario": escenario,
@@ -253,11 +262,74 @@ def _eventos_tabla(resultados: dict) -> pd.DataFrame:
                     "tipo": evento.tipo,
                     "servidor_id": evento.servidor_id,
                     "tarea_id": evento.tarea_id,
+                    "duracion": duraciones.get(evento.tarea_id),
                     "detalle": evento.detalle,
                 }
                 for evento in resultado.eventos
             )
     return pd.DataFrame(filas)
+
+
+def _mostrar_distribucion(resultados: dict) -> None:
+    claves = list(resultados)
+    escenarios = list(dict.fromkeys(escenario for escenario, _ in claves))
+    escenario = st.selectbox("Escenario", escenarios, key="distribucion_escenario")
+    estrategias = [
+        estrategia for nombre_escenario, estrategia in claves
+        if nombre_escenario == escenario
+    ]
+    estrategia = st.selectbox(
+        "Estrategia", estrategias, key="distribucion_estrategia"
+    )
+    ejecuciones = resultados[(escenario, estrategia)]
+    ejecuciones = ejecuciones if isinstance(ejecuciones, list) else [ejecuciones]
+    corrida = st.selectbox(
+        "Repetición",
+        range(1, len(ejecuciones) + 1),
+        index=0,
+        key="distribucion_repeticion",
+    )
+    resultado = ejecuciones[corrida - 1]
+
+    conteo_tareas = {
+        servidor.id: sum(
+            registro.servidor_id == servidor.id for registro in resultado.registros
+        )
+        for servidor in sorted(resultado.servidores, key=lambda servidor: servidor.id)
+    }
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.bar(
+        [f"S{servidor_id}" for servidor_id in conteo_tareas],
+        list(conteo_tareas.values()),
+    )
+    ax.set_title(f"Tareas completadas por servidor — {escenario} / {estrategia}")
+    ax.set_xlabel("Servidor")
+    ax.set_ylabel("Número de tareas")
+    fig.tight_layout()
+    st.pyplot(fig)
+
+    tareas = pd.DataFrame(
+        [
+            {
+                "id": registro.tarea_id,
+                "duracion": registro.duracion,
+                "llegada": registro.tiempo_llegada,
+                "servidor": registro.servidor_id,
+                "inicio": registro.tiempo_inicio_proceso,
+                "fin": registro.tiempo_fin,
+                "espera": max(
+                    0, registro.tiempo_inicio_proceso - registro.tiempo_llegada
+                ),
+                "reasignada": registro.reasignada,
+            }
+            for registro in sorted(resultado.registros, key=lambda registro: registro.tarea_id)
+        ],
+        columns=[
+            "id", "duracion", "llegada", "servidor",
+            "inicio", "fin", "espera", "reasignada",
+        ],
+    )
+    st.dataframe(tareas, width="stretch")
 
 
 def _configurar_parametros() -> ParametrosSimulacion:
@@ -344,7 +416,9 @@ def main() -> None:
     )
     resumen = _resumen_por_resultado(resultados)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Resumen", "Gráficas", "Línea de tiempo", "Eventos"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["Resumen", "Gráficas", "Línea de tiempo", "Eventos", "Distribución"]
+    )
 
     with tab1:
         st.dataframe(
@@ -407,6 +481,9 @@ def main() -> None:
             if tarea != "todos":
                 filtro = filtro[filtro["tarea_id"] == int(tarea)]
             st.dataframe(filtro, width="stretch")
+
+    with tab5:
+        _mostrar_distribucion(resultados)
 
 
 if __name__ == "__main__":

@@ -42,44 +42,84 @@ streamlit run src/dashboard.py
 
 Los archivos generados se guardan en `results/`: el resumen en CSV y Excel, y las gráficas PNG en `results/graficas/`; estas gráficas también se pueden consultar en el panel.
 
-## 4. Resultados de la ejecución regenerada
+## 4. Resultados con los parámetros base
 
-La siguiente tabla procede de `python -m src.main --all`, con los valores documentados en `.env.example`, semillas de tareas 42 a 71 y 30 repeticiones por combinación. Cada fila completó las 100 tareas. `σ` representa la desviación estándar entre repeticiones. La reasignación solo aplica al escenario C; se muestra como `—` en A y B.
+Estos resultados se generaron ejecutando `python -m src.main --all` con los parámetros base de `.env.example`: 100 tareas, cuatro servidores, semillas 42–71, 30 repeticiones, intervalo 2 y umbral 12. Cada combinación completó las 100 tareas. Cada celda `media ± σ` presenta la media y la desviación estándar poblacional entre las 30 corridas. La reasignación solo aplica a C.
 
-| Escenario | Estrategia | Tareas completadas | Makespan ± σ | Desv. estándar de carga ± σ | Tiempo promedio de espera ± σ | Tareas reasignadas ± σ | Sobrecargas totales ± σ | Tiempo en cola de espera ± σ |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| A - Normal | Round Robin | 100 | 204,97 ± 2,09 | 11,27 ± 4,28 | 0,456 ± 0,139 | — | 0,90 ± 1,22 | 0,0000 ± 0,0000 |
-| A - Normal | Menor Carga | 100 | 204,47 ± 2,08 | 7,60 ± 3,18 | 0,048 ± 0,028 | — | 0,00 ± 0,00 | 0,0000 ± 0,0000 |
-| A - Normal | Aleatoria | 100 | 210,30 ± 4,17 | 16,41 ± 5,31 | 3,008 ± 0,593 | — | 19,57 ± 6,77 | 0,0000 ± 0,0000 |
-| B - Sobrecarga | Round Robin | 100 | 212,70 ± 5,15 | 23,28 ± 4,00 | 2,109 ± 0,388 | — | 16,73 ± 3,86 | 0,0000 ± 0,0000 |
-| B - Sobrecarga | Menor Carga | 100 | 205,87 ± 3,23 | 28,18 ± 2,92 | 0,277 ± 0,126 | — | 6,70 ± 1,62 | 0,0000 ± 0,0000 |
-| B - Sobrecarga | Aleatoria | 100 | 211,73 ± 3,71 | 29,41 ± 7,29 | 3,974 ± 0,762 | — | 31,13 ± 8,09 | 0,0000 ± 0,0000 |
-| C - Falla | Round Robin | 100 | 210,03 ± 3,64 | 42,91 ± 5,86 | 1,923 ± 0,744 | 1,17 ± 0,37 | 10,90 ± 8,06 | 0,0057 ± 0,0305 |
-| C - Falla | Menor Carga | 100 | 206,17 ± 2,92 | 43,31 ± 4,48 | 0,841 ± 0,549 | 1,00 ± 0,00 | 3,43 ± 5,14 | 0,0000 ± 0,0000 |
-| C - Falla | Aleatoria | 100 | 211,93 ± 3,08 | 43,89 ± 8,57 | 4,365 ± 1,005 | 2,20 ± 0,79 | 30,73 ± 11,18 | 0,0127 ± 0,0401 |
+| Escenario | Estrategia | Completadas | Makespan ± σ | Desv. carga ± σ | Desv. ocupación ± σ | Espera promedio ± σ | Reasignadas ± σ | Sobrecargas ± σ | Espera disponibilidad ± σ |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| A - Normal | Round Robin | 100 | 204,97 ± 2,09 | 11,27 ± 4,28 | 11,270 ± 4,284 | 0,456 ± 0,139 | — | 0,90 ± 1,22 | 0,0000 ± 0,0000 |
+| A - Normal | Menor Carga | 100 | 204,47 ± 2,08 | 7,60 ± 3,18 | 7,596 ± 3,179 | 0,048 ± 0,028 | — | 0,00 ± 0,00 | 0,0000 ± 0,0000 |
+| A - Normal | Aleatoria | 100 | 210,30 ± 4,17 | 16,41 ± 5,31 | 16,412 ± 5,308 | 3,008 ± 0,593 | — | 19,57 ± 6,77 | 0,0000 ± 0,0000 |
+| B - Sobrecarga | Round Robin | 100 | 212,70 ± 5,15 | 23,28 ± 4,00 | 27,342 ± 5,053 | 2,109 ± 0,388 | — | 16,73 ± 3,86 | 0,0000 ± 0,0000 |
+| B - Sobrecarga | Menor Carga | 100 | 205,87 ± 3,23 | 28,18 ± 2,92 | 13,201 ± 3,737 | 0,277 ± 0,126 | — | 6,70 ± 1,62 | 0,0000 ± 0,0000 |
+| B - Sobrecarga | Aleatoria | 100 | 211,73 ± 3,71 | 29,41 ± 7,29 | 22,872 ± 7,209 | 3,974 ± 0,762 | — | 31,13 ± 8,09 | 0,0000 ± 0,0000 |
+| C - Falla | Round Robin | 100 | 210,03 ± 3,64 | 42,91 ± 5,86 | 10,694 ± 4,940 | 1,939 ± 0,747 | 1,17 ± 0,37 | 10,90 ± 8,06 | 0,0057 ± 0,0305 |
+| C - Falla | Menor Carga | 100 | 206,17 ± 2,92 | 43,31 ± 4,48 | 5,740 ± 3,223 | 0,845 ± 0,554 | 1,00 ± 0,00 | 3,43 ± 5,14 | 0,0000 ± 0,0000 |
+| C - Falla | Aleatoria | 100 | 211,93 ± 3,08 | 43,89 ± 8,57 | 13,434 ± 5,793 | 4,418 ± 1,009 | 2,20 ± 0,79 | 30,73 ± 11,18 | 0,0127 ± 0,0401 |
 
-La suma de la carga acumulada por servidor coincide con la duración total de las tareas en cada ejecución. El archivo `results/resumen.csv` contiene las cifras con precisión completa y el reporte Excel separa los escenarios en hojas.
+`desviacion_ocupacion` se calcula por corrida como la desviación estándar poblacional de `trabajo acumulado completado / capacidad`, solo entre servidores que no terminan en estado `CAIDO`; la tabla muestra el promedio y la dispersión de esa métrica entre corridas. En A, las capacidades son iguales y coincide con la desviación de carga. En B, normalizar por capacidad permite juzgar el uso relativo del nodo lento: una distribución de unidades de trabajo parecida no implica tiempos de ocupación parecidos, y dejar al nodo lento relativamente infrautilizado también aumenta la desviación. La desviación sin normalizar puede hacer parecer mejor a Round Robin (23,28) que a Menor Carga (28,18), mientras que la desviación de ocupación muestra a Menor Carga más equilibrada (13,201 frente a 27,342 y 22,872). En C, excluir el servidor caído evita contar como capacidad operativa el trabajo que dejó acumulado; Menor Carga obtiene 5,740 frente a 10,694 y 13,434.
 
-## 5. Cómo interpretar las métricas
+La comprobación de conservación usa el trabajo realmente procesado: `sum(servidor.trabajo_procesado for servidor in resultado.servidores) == pytest.approx(sum(tarea.duracion for tarea in tareas))`, también en C. No se infiere la conservación a partir de la carga asignada. `results/resumen.csv` y `results/resumen.xlsx` contienen los resultados generados.
 
-- **Tiempo promedio de espera:** ticks que una tarea pasa en su cola antes de empezar a procesarse; es la métrica principal porque representa lo que percibe cada tarea.
-- **Sobrecargas totales:** cantidad de veces que un servidor superó el umbral; indica el estrés observado en el sistema.
-- **Makespan:** tick en que termina la última tarea. Lo domina en gran medida la llegada de la última tarea, aproximadamente `(N - 1) × INTERVALO_LLEGADA = 198` ticks, más el procesamiento pendiente. Por eso discrimina poco; diferencias menores que una desviación estándar no justifican afirmar que una estrategia es mejor.
-- **Desviación estándar de la carga:** desigualdad del trabajo acumulado entre servidores. Mide equilibrio acumulado, no equilibrio instantáneo. En Menor Carga, el desempate rotativo evita favorecer siempre al servidor con ID menor y cambia la distribución observada.
-- **± σ:** muestra la variación entre repeticiones. Si dos promedios difieren menos que la desviación estándar correspondiente, no se debe afirmar que uno es mejor solo por su promedio.
-- **Tiempo en cola de espera:** mide cuánto esperan las tareas cuando ningún servidor está disponible. Es cero o cercano a cero en estas ejecuciones porque la utilización configurada es menor que 1 y la ausencia simultánea de servidores disponibles es poco frecuente; la caída puede producir esperas pequeñas y temporales.
+### Tareas asignadas por servidor
 
-## 6. Análisis y conclusiones
+Promedio de tareas completadas en 30 corridas con el umbral base 12:
 
-En A, Menor Carga promedia 0,048 ticks de espera frente a 0,456 de Round Robin y 3,008 de Aleatoria. También registra cero sobrecargas, frente a 0,90 de Round Robin y 19,57 de Aleatoria. Con el desempate rotativo, la carga media por servidor de Menor Carga queda entre 133,93 y 138,40 unidades; su desviación estándar de carga, 7,60 ± 3,18, es menor que la de Round Robin (11,27 ± 4,28) y Aleatoria (16,41 ± 5,31). El makespan de Round Robin y Menor Carga difiere solo 0,50 ticks, por debajo de sus desviaciones estándar, así que esos promedios no permiten declarar una ventaja de makespan.
+| Escenario | Estrategia | S0 | S1 | S2 | S3 |
+|---|---|---:|---:|---:|---:|
+| A - Normal | Round Robin | 25,00 | 25,00 | 25,00 | 25,00 |
+| A - Normal | Menor Carga | 24,83 | 25,50 | 25,03 | 24,63 |
+| A - Normal | Aleatoria | 25,67 | 24,73 | 24,87 | 24,73 |
+| B - Sobrecarga | Round Robin | 27,47 | 27,10 | 18,77 | 26,67 |
+| B - Sobrecarga | Menor Carga | 28,10 | 28,20 | 16,33 | 27,37 |
+| B - Sobrecarga | Aleatoria | 28,20 | 27,53 | 16,53 | 27,73 |
+| C - Falla | Round Robin | 25,57 | 18,97 | 28,87 | 26,60 |
+| C - Falla | Menor Carga | 24,73 | 26,13 | 24,37 | 24,77 |
+| C - Falla | Aleatoria | 24,30 | 26,60 | 23,57 | 25,53 |
 
-En B, Menor Carga vuelve a minimizar la espera (0,277 ticks) y registra menos sobrecargas (6,70) que Round Robin (2,109 ticks y 16,73 sobrecargas) y Aleatoria (3,974 ticks y 31,13 sobrecargas). Sin embargo, Round Robin logra menor desviación de carga (23,28 frente a 28,18 para Menor Carga); por tanto, no corresponde describir Menor Carga como la más equilibrada en este escenario. El makespan medio de Menor Carga es 6,83 ticks inferior al de Round Robin, más que una σ de cada estrategia; es una diferencia descriptiva, no una prueba estadística formal.
+La siguiente corrida individual usa semilla 42, repetición 0 y el umbral base 12. En C, las tareas completadas pueden cambiar de servidor después de la falla:
 
-En C, el servidor que falla se escoge entre los que tienen más trabajo pendiente en el instante configurado; por ello la reasignación es visible y varía según la estrategia. Menor Carga promedia 1,00 tarea reasignada y 0,841 ticks de espera; Round Robin, 1,17 tareas y 1,923 ticks; Aleatoria, 2,20 tareas y 4,365 ticks. Menor Carga también tiene menos sobrecargas que las otras estrategias (3,43 frente a 10,90 y 30,73). La desviación de carga de Round Robin (42,91) y Menor Carga (43,31) es cercana, así que no hay una diferencia práctica clara en equilibrio acumulado. El makespan de Menor Carga es 3,87 ticks menor que el de Round Robin; supera por poco una σ de cada promedio, pero no se ha aplicado una prueba inferencial.
+| Escenario | Estrategia | S0 | S1 | S2 | S3 |
+|---|---|---:|---:|---:|---:|
+| A - Normal | Round Robin | 25 | 25 | 25 | 25 |
+| A - Normal | Menor Carga | 26 | 26 | 25 | 23 |
+| A - Normal | Aleatoria | 23 | 30 | 24 | 23 |
+| B - Sobrecarga | Round Robin | 27 | 27 | 20 | 26 |
+| B - Sobrecarga | Menor Carga | 29 | 28 | 15 | 28 |
+| B - Sobrecarga | Aleatoria | 23 | 32 | 19 | 26 |
+| C - Falla | Round Robin | 30 | 11 | 30 | 29 |
+| C - Falla | Menor Carga | 32 | 30 | 11 | 27 |
+| C - Falla | Aleatoria | 29 | 12 | 35 | 24 |
 
-Las tres estrategias reciben únicamente servidores disponibles. La regla de sobrecarga es una protección del sistema: un nodo sobrecargado sigue procesando, pero no recibe tareas nuevas hasta recuperarse. Esa protección puede aumentar la espera y se refleja en los eventos de sobrecarga; no constituye una ventaja exclusiva de una estrategia.
+El promedio de 30 corridas oculta el desbalance que Aleatoria puede mostrar en una corrida individual: por ejemplo, en C una corrida asignó 12 tareas a S1 y 35 a S2, aunque los promedios de esas columnas son 26,60 y 23,57.
 
-**Conclusión por escenario:** con servidores iguales y bajo costo de monitoreo, Round Robin es una alternativa sencilla y distribuye de forma uniforme la carga acumulada (en A, las cargas medias por nodo están entre 135,00 y 137,90). Si se prioriza minimizar espera y monitorear la carga no es costoso, Menor Carga mejora esos resultados en A. Para capacidad heterogénea como B, conviene Menor Carga cuando importan la espera y evitar sobrecargas; Round Robin ofrece menor desviación de carga acumulada, pero espera más y genera más sobrecargas. En C, Menor Carga obtiene la menor espera y menos sobrecargas de esta ejecución; Aleatoria resulta menos conveniente en ambos criterios.
+## 5. Experimento complementario: sin protección de sobrecarga
+
+Se ejecutaron realmente los escenarios A y B durante 30 repeticiones con los mismos parámetros base y `UMBRAL_SOBRECARGA=1000`. En esta configuración no se activó ninguna sobrecarga:
+
+| Escenario | Estrategia | Espera promedio | Makespan ± σ | Desv. ocupación promedio | Sobrecargas |
+|---|---|---:|---:|---:|---:|
+| A - Normal | Round Robin | 0,456 | 204,97 ± 2,09 | 11,270 | 0,00 |
+| A - Normal | Menor Carga | 0,048 | 204,47 ± 2,08 | 7,596 | 0,00 |
+| A - Normal | Aleatoria | 4,650 | 216,00 ± 8,41 | 23,115 | 0,00 |
+| B - Sobrecarga | Round Robin | 9,931 | 281,53 ± 29,31 | 61,174 | 0,00 |
+| B - Sobrecarga | Menor Carga | 0,277 | 205,87 ± 3,23 | 13,201 | 0,00 |
+| B - Sobrecarga | Aleatoria | 15,753 | 294,07 ± 42,52 | 66,509 | 0,00 |
+
+La protección por umbral se aplica a todas las estrategias, no es una función exclusiva de Menor Carga. En B, con umbral 12 Round Robin promedia 2,109 ticks de espera y un makespan de 212,70; sin esa protección, suben a 9,931 y 281,53. Por tanto, la protección reduce y puede ocultar la debilidad de Round Robin cuando distribuye las tareas entre servidores de capacidad heterogénea. Con umbral 1000, en la corrida de ejemplo de semilla 42, Aleatoria distribuyó en A/B 20, 33, 23 y 24 tareas entre S0–S3; esa dispersión ilustra por qué el promedio de 30 repeticiones no describe cada corrida.
+
+## 6. Cómo interpretar las métricas y conclusiones
+
+- **Tiempo promedio de espera:** ticks desde la llegada hasta el inicio del procesamiento; representa la espera observada por las tareas.
+- **Sobrecargas totales:** veces que un servidor superó el umbral y dejó temporalmente de recibir tareas.
+- **Makespan:** tick de finalización de la última tarea. Lo domina la llegada de la última tarea, aproximadamente `(N - 1) × INTERVALO_LLEGADA = 198` ticks, más el procesamiento pendiente; por eso las diferencias descriptivas no constituyen una prueba estadística.
+- **Desviación estándar de carga:** dispersión de unidades de trabajo completado sin considerar capacidad ni estado final.
+- **Desviación de ocupación:** dispersión poblacional de trabajo completado dividido entre capacidad, excluyendo servidores caídos. Resulta más informativa en B y C por las razones descritas arriba.
+- **Espera de disponibilidad:** tiempo que una tarea aguarda cuando no hay servidores disponibles.
+- **± σ:** variación entre las 30 repeticiones; no sustituye una prueba inferencial.
+
+En A, Menor Carga tiene la menor desviación de ocupación (7,596), espera (0,048) y sobrecargas (0,00). En B, también es la mejor equilibrada según desviación de ocupación: 13,201 frente a 27,342 de Round Robin y 22,872 de Aleatoria; además promedia 0,277 ticks de espera. En C, vuelve a ser la más equilibrada con 5,740 frente a 10,694 y 13,434, y promedia 0,845 ticks de espera; Round Robin promedia 1,939 y Aleatoria 4,418. Estos valores de espera de C corresponden a la ejecución regenerada con el inicio de las tareas reasignadas corregido.
 
 ## 7. Limitaciones
 
@@ -87,27 +127,29 @@ Las tres estrategias reciben únicamente servidores disponibles. La regla de sob
 - Las tareas son independientes; no se modelan dependencias ni prioridades.
 - El motor usa un reloj discreto y no simula red, latencias ni comunicación real.
 - Los resultados dependen de parámetros como `INTERVALO_LLEGADA` y `UMBRAL_SOBRECARGA`.
-- En C, la cantidad de tareas reasignadas depende del disparador y del trabajo pendiente del servidor que falla en ese instante.
+- En C, la cantidad de tareas reasignadas depende del disparador y del trabajo pendiente del servidor que falla. Toda tarea reasignada vuelve a intentar asignarse en el tick siguiente a la caída y, por tanto, pierde como mínimo un tick. Ese comportamiento se conserva intencionalmente.
 
 ## 8. Tabla de trazabilidad
 
-La marca ✅ se reserva para comportamiento comprobado con pruebas o ejecución de la simulación. La documentación de arquitectura se señala aparte porque es una evidencia documental.
+La marca ✅ indica que existe una prueba en `tests/` o una ejecución real descrita como evidencia.
 
-| Requisito | Archivo | Clase / función exacta | Evidencia | Estado |
-|---|---|---|---|---|
-| Crear tareas reproducibles | `src/task_generator.py` | `generar_tareas()` | La ejecución completa registra las semillas 42–71 | ✅ |
-| Modelar tarea, servidor y estado | `src/models.py` | `Tarea`, `Servidor`, `EstadoServidor` | `tests/test_engine.py` y ejecución completa | ✅ |
-| Asignar con tres estrategias | `src/algorithms.py` | `RoundRobin.asignar()`, `MenorCarga.asignar()`, `Aleatoria.asignar()` | `tests/test_algorithms.py` | ✅ |
-| Rotar desempates de Menor Carga | `src/algorithms.py` | `MenorCarga.asignar()` | `test_menor_carga_rotates_among_equal_load_servers` | ✅ |
-| Simular reloj, sobrecarga y falla | `src/engine.py` | `ConfiguracionFalla`, `ejecutar_simulacion()` | `tests/test_engine.py` | ✅ |
-| Fallar el servidor con más trabajo pendiente en C | `src/scenarios.py`, `src/engine.py` | `ejecutar_escenario_c()`, `ConfiguracionFalla.elegir_mas_cargado` | `test_scenario_failure_targets_server_with_most_pending_work` | ✅ |
-| Comprobar que no se pierden tareas ni carga | `tests/test_engine.py` | `test_every_strategy_completes_every_task_in_all_scenarios` | Prueba las nueve combinaciones y conserva el trabajo generado; la ejecución real `--all` confirma 100 completadas por combinación | ✅ |
-| Calcular métricas | `src/metrics.py` | `calcular_metricas()` | Pruebas de métricas en `tests/test_engine.py` | ✅ |
-| Exportar CSV, Excel y gráficas | `src/report.py` | `generar_csv()`, `generar_excel()`, `generar_graficas()` | `test_reports_mark_reassignments_only_in_failure_scenario_and_add_comparisons` y ejecución completa | ✅ |
-| Cargar y validar parámetros | `src/parameters.py`, `src/config.py` | `ParametrosSimulacion.validar()`, `crear_parametros_por_defecto()` | Pruebas de parámetros explícitos y ejecución completa | ✅ |
-| Ejecutar por línea de comandos | `src/main.py` | `main()`, `ejecutar_desde_parametros()` | `python -m src.main --all` | ✅ |
-| Mostrar y filtrar resultados en el panel | `src/dashboard.py` | `main()` | Prueba interactiva con Streamlit AppTest | ✅ |
-| Documentar arquitectura y flujo | `docs/arquitectura.md` | Diagrama Mermaid | Revisión documental; no es una prueba de ejecución | — |
+| Requisito | Implementación | Evidencia | Estado |
+|---|---|---|---|
+| Crear tareas reproducibles | `src/task_generator.py` | `tests/test_distribucion_y_regresion.py`; ejecución `--all` con semillas 42–71 | ✅ |
+| Modelar tarea, servidor y estado | `src/models.py` | `tests/test_engine.py`, `tests/test_invariantes.py` | ✅ |
+| Asignar con tres estrategias y rotar empates | `src/algorithms.py` | `tests/test_algorithms.py`, `tests/test_casos_algoritmos.py` | ✅ |
+| Simular reloj, sobrecarga, falla y reasignación | `src/engine.py` | `tests/test_engine.py`, `tests/test_invariantes.py`, `tests/test_trazas_manuales.py` | ✅ |
+| Completar tareas y conservar trabajo procesado en A, B y C | `src/engine.py` | `test_every_strategy_completes_every_task_in_all_scenarios` en `tests/test_engine.py` | ✅ |
+| Calcular métricas y desviación de ocupación | `src/metrics.py` | `tests/test_engine.py`, `tests/test_distribucion_y_regresion.py` | ✅ |
+| Exportar CSV, Excel y gráficas | `src/report.py` | `tests/test_report.py`; ejecución real `python -m src.main --all` | ✅ |
+| Cargar y validar parámetros | `src/parameters.py`, `src/config.py` | `tests/test_engine.py`; ejecución real `python -m src.main --all` | ✅ |
+| Ejecutar por línea de comandos | `src/main.py` | Ejecución real `python -m src.main --all` | ✅ |
+| Mostrar y filtrar resultados en el panel | `src/dashboard.py` | `tests/test_report.py` comprueba el helper de resaltado; no hay prueba de interacción completa | — |
+| Documentar arquitectura y flujo | `docs/arquitectura.md` | Evidencia documental; no es una prueba ni una ejecución | — |
+
+## Verificación
+
+**Fecha: 29 de octubre de 2026.** `python -m pytest tests -v`: **129 pruebas pasadas, 0 fallidas**. `python -m src.main --all` completó las nueve combinaciones con 30 repeticiones y generó los archivos de `results/`. Para esta ejecución se fijó `UMBRAL_SOBRECARGA=12` en el entorno del proceso, ya que el `.env` local contiene un valor personalizado distinto.
 
 ## 9. Nota sobre el uso de IA
 
@@ -120,7 +162,7 @@ El código se desarrolló con asistencia de herramientas de IA y fue revisado y 
 
 ## 11. Panel visual
 
-Ejecuta `streamlit run src/dashboard.py`. La barra lateral permite configurar la simulación; pulsa **Ejecutar simulación** para aplicar esos cambios. Las pestañas muestran el resumen, gráficas, línea de tiempo y eventos; los selectores y filtros de esas pestañas actualizan la vista sin volver a ejecutar el motor.
+Ejecuta `streamlit run src/dashboard.py`. La barra lateral permite configurar la simulación; pulsa **Ejecutar simulación** para aplicar esos cambios. Las pestañas muestran el resumen, gráficas, línea de tiempo, eventos y distribución. Distribución permite escoger escenario, estrategia y repetición, y presenta tareas por servidor y sus tiempos; Eventos incluye la duración de la tarea. Los selectores y filtros actualizan la vista sin volver a ejecutar el motor.
 
 ## 12. Estructura del proyecto
 
@@ -149,7 +191,12 @@ balanceo-carga/
 │   └── task_generator.py
 └── tests/
     ├── __init__.py
+    ├── conftest.py
     ├── test_algorithms.py
+    ├── test_casos_algoritmos.py
+    ├── test_distribucion_y_regresion.py
     ├── test_engine.py
-    └── test_report.py
+    ├── test_invariantes.py
+    ├── test_report.py
+    └── test_trazas_manuales.py
 ```

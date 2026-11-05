@@ -129,11 +129,15 @@ def ejecutar_simulacion(
     tareas: list[Tarea],
     servidores: list[Servidor],
     estrategia: EstrategiaAsignacion,
-    umbral_sobrecarga: float = 15.0,
+    umbral_sobrecarga: float = 12.0,
     config_falla: ConfiguracionFalla | None = None,
     nombre_escenario: str = "",
 ) -> ResultadoSimulacion:
-    """Ejecuta una corrida de la simulación con reloj discreto."""
+    """Ejecuta una corrida con reloj discreto.
+
+    Las tareas de un servidor caído vuelven al proceso de asignación en el
+    siguiente tick, por lo que pierden como mínimo un tick tras la caída.
+    """
     eventos: list[Evento] = []
     registros: list[RegistroTarea] = []
     pendientes = sorted(list(tareas), key=lambda tarea: tarea.tiempo_llegada)
@@ -289,8 +293,11 @@ def ejecutar_simulacion(
                     )
                     for tarea_pendiente, trabajo_restante in list(srv_falla.cola):
                         srv_falla.cola.remove((tarea_pendiente, trabajo_restante))
+                        inicio_proceso.pop(tarea_pendiente.id, None)
                         trabajo_restante_override[tarea_pendiente.id] = trabajo_restante
                         en_espera.append(tarea_pendiente)
+                        # The current tick's assignment batch is already built;
+                        # reassigned tasks can only be assigned on the next tick.
                         eventos.append(
                             Evento(
                                 tiempo=reloj,
@@ -311,6 +318,8 @@ def ejecutar_simulacion(
             tarea_actual, trabajo_restante = servidor.cola[0]
             if tarea_actual.id not in inicio_proceso:
                 inicio_proceso[tarea_actual.id] = reloj
+            trabajo_procesado = min(servidor.capacidad, trabajo_restante)
+            servidor.trabajo_procesado += trabajo_procesado
             nuevo_restante = trabajo_restante - servidor.capacidad
             if nuevo_restante <= 1e-9:
                 servidor.cola.pop(0)
@@ -386,55 +395,3 @@ def ejecutar_simulacion(
         nombre_escenario=nombre_escenario,
         tareas_reasignadas=tareas_reasignadas,
     )
-
-
-def _ejecutar_falla_servidor(
-    servidor: Servidor,
-    reloj: int,
-    total_asignadas: int,
-    en_espera: list[Tarea],
-    trabajo_restante_override: dict[int, float],
-    inicio_proceso: dict[int, int],
-    eventos: list[Evento],
-) -> None:
-    """
-    Simula la caída de un servidor: lo marca como CAIDO,
-    extrae sus tareas pendientes y las pone en la cola de espera
-    para ser reasignadas a servidores activos.
-
-    Las tareas parcialmente procesadas conservan su trabajo restante
-    (no reinician desde cero). Las tareas ya completadas no se pierden.
-    """
-    servidor.estado = EstadoServidor.CAIDO
-    eventos.append(Evento(
-        tiempo=reloj,
-        tipo="CAIDA",
-        tarea_id=-1,
-        servidor_id=servidor.id,
-        detalle=(
-            f"Servidor {servidor.id} CAIDO tras asignar tarea "
-            f"#{total_asignadas}. Tareas pendientes: {len(servidor.cola)}"
-        ),
-    ))
-    logger.info(
-        f"[t={reloj}] ¡FALLA! Servidor {servidor.id} CAIDO. "
-        f"Tareas pendientes en su cola: {len(servidor.cola)}"
-    )
-
-    # Reasignar tareas pendientes del servidor caído
-    for tarea, restante in servidor.cola:
-        trabajo_restante_override[tarea.id] = restante
-        inicio_proceso.pop(tarea.id, None)  # Limpiar inicio anterior
-        en_espera.append(tarea)
-        eventos.append(Evento(
-            tiempo=reloj,
-            tipo="PENDIENTE_REASIGNACION",
-            tarea_id=tarea.id,
-            servidor_id=servidor.id,
-            detalle=(
-                f"Tarea {tarea.id} (restante={restante:.1f}) pendiente "
-                f"de reasignación desde Servidor {servidor.id}"
-            ),
-        ))
-
-    servidor.cola.clear()

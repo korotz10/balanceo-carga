@@ -4,6 +4,7 @@ from statistics import pstdev
 from typing import Any
 
 from src.engine import ResultadoSimulacion
+from src.models import EstadoServidor
 
 
 def calcular_metricas(resultado: ResultadoSimulacion) -> dict[str, Any]:
@@ -22,6 +23,14 @@ def calcular_metricas(resultado: ResultadoSimulacion) -> dict[str, Any]:
         for servidor in servidores
     }
     cargas = list(carga_por_servidor.values())
+    ocupacion = []
+    for servidor in servidores:
+        if servidor.estado == EstadoServidor.CAIDO:
+            continue
+        capacidad = servidor.capacidad
+        if capacidad <= 0:
+            continue
+        ocupacion.append(carga_por_servidor.get(servidor.id, 0.0) / capacidad)
     esperas = [
         max(0, registro.tiempo_inicio_proceso - registro.tiempo_llegada)
         for registro in resultado.registros
@@ -43,6 +52,7 @@ def calcular_metricas(resultado: ResultadoSimulacion) -> dict[str, Any]:
         "tareas_por_servidor": tareas_por_servidor,
         "carga_por_servidor": carga_por_servidor,
         "desviacion_estandar_carga": pstdev(cargas) if len(cargas) > 1 else 0.0,
+        "desviacion_ocupacion": pstdev(ocupacion) if len(ocupacion) > 1 else 0.0,
         "makespan": resultado.makespan,
         "tiempo_espera_promedio": sum(esperas) / len(esperas) if esperas else 0.0,
         "sobrecargas_por_servidor": sobrecargas_por_servidor,

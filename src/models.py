@@ -88,6 +88,7 @@ class Servidor:
     tareas_completadas: list = field(default_factory=list)
     estado: EstadoServidor = field(default=EstadoServidor.ACTIVO)
     total_tareas_recibidas: int = 0
+    trabajo_procesado: float = 0.0
 
     @property
     def trabajo_pendiente(self) -> float:
