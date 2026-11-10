@@ -11,3 +11,7 @@ build/
 .vscode/
 results/*
 !results/.gitkeep
+!results/verificacion_umbral12_20261106_1437/
+results/verificacion_umbral12_20261106_1437/*
+!results/verificacion_umbral12_20261106_1437/resumen.csv
+!results/verificacion_umbral12_20261106_1437/parametros.csv

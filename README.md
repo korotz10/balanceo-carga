@@ -60,7 +60,7 @@ Estos resultados se generaron ejecutando `python -m src.main --all` con los par�
 
 `desviacion_ocupacion` se calcula por corrida como la desviación estándar poblacional de `trabajo acumulado completado / capacidad`, solo entre servidores que no terminan en estado `CAIDO`; la tabla muestra el promedio y la dispersión de esa métrica entre corridas. En A, las capacidades son iguales y coincide con la desviación de carga. En B, normalizar por capacidad permite juzgar el uso relativo del nodo lento: una distribución de unidades de trabajo parecida no implica tiempos de ocupación parecidos, y dejar al nodo lento relativamente infrautilizado también aumenta la desviación. La desviación sin normalizar puede hacer parecer mejor a Round Robin (23,28) que a Menor Carga (28,18), mientras que la desviación de ocupación muestra a Menor Carga más equilibrada (13,201 frente a 27,342 y 22,872). En C, excluir el servidor caído evita contar como capacidad operativa el trabajo que dejó acumulado; Menor Carga obtiene 5,740 frente a 10,694 y 13,434.
 
-La comprobación de conservación usa el trabajo realmente procesado: `sum(servidor.trabajo_procesado for servidor in resultado.servidores) == pytest.approx(sum(tarea.duracion for tarea in tareas))`, también en C. No se infiere la conservación a partir de la carga asignada. `results/resumen.csv` y `results/resumen.xlsx` contienen los resultados generados.
+La comprobación de conservación usa el trabajo realmente procesado: `sum(servidor.trabajo_procesado for servidor in resultado.servidores) == pytest.approx(sum(tarea.duracion for tarea in tareas))`, también en C. No se infiere la conservación a partir de la carga asignada. La regeneración que respalda estas tablas está en `results/verificacion_umbral12_20261106_1437/resumen.csv`; los parámetros efectivos de esa ejecución están registrados en `results/verificacion_umbral12_20261106_1437/parametros.csv`. El `results/resumen.csv` que ya existía difiere de esta regeneración en varias métricas; no se usa como evidencia y sus valores no permiten inferir qué umbral se usó.
 
 ### Tareas asignadas por servidor
 
@@ -149,7 +149,7 @@ La marca ✅ indica que existe una prueba en `tests/` o una ejecución real desc
 
 ## Verificación
 
-**Fecha: 29 de octubre de 2026.** `python -m pytest tests -v`: **129 pruebas pasadas, 0 fallidas**. `python -m src.main --all` completó las nueve combinaciones con 30 repeticiones y generó los archivos de `results/`. Para esta ejecución se fijó `UMBRAL_SOBRECARGA=12` en el entorno del proceso, ya que el `.env` local contiene un valor personalizado distinto.
+**Fecha: 06 de noviembre de 2026.** `python -m pytest tests -v`: **129 pruebas pasadas, 0 fallidas**. Para verificar las cifras, se fijó `UMBRAL_SOBRECARGA=12` en el entorno del proceso y se comprobó que la configuración efectiva imprimía `12.0`; después, `python -m src.main --all --resultados results\verificacion_umbral12_20261106_1437` completó las nueve combinaciones con 30 repeticiones. Sus métricas coinciden con la tabla oficial al redondeo mostrado. También se ejecutó una corrida individual con semilla 42 y umbral 12; las nueve distribuciones por servidor coinciden con la tabla de esa sección. El CSV de resultados y el CSV de parámetros están en la carpeta indicada arriba. El CSV preexistente de `results/` no se sobrescribió.
 
 ## 9. Nota sobre el uso de IA
 
@@ -162,9 +162,35 @@ El código se desarrolló con asistencia de herramientas de IA y fue revisado y 
 
 ## 11. Panel visual
 
-Ejecuta `streamlit run src/dashboard.py`. La barra lateral permite configurar la simulación; pulsa **Ejecutar simulación** para aplicar esos cambios. Las pestañas muestran el resumen, gráficas, línea de tiempo, eventos y distribución. Distribución permite escoger escenario, estrategia y repetición, y presenta tareas por servidor y sus tiempos; Eventos incluye la duración de la tarea. Los selectores y filtros actualizan la vista sin volver a ejecutar el motor.
+Ejecuta `streamlit run src/dashboard.py`. La barra lateral organiza los parámetros de simulación, carga, escenarios y opciones avanzadas. La pestaña **Resultados oficiales** compara las estrategias con Plotly; **Eventos** muestra la línea de tiempo y la bitácora explicada; **Reproducción** permite examinar los snapshots por tick. Al pulsar **Reproducir**, el panel avanza automáticamente cada medio segundo; **Pausar**, el slider y los controles de paso permiten inspeccionar ticks concretos. Los informes oficiales y las gráficas PNG conservan su flujo existente en `src/report.py`.
 
-## 12. Estructura del proyecto
+## 12. Fallas y sobrecargas: comportamiento de cada estrategia
+
+Las corridas oficiales conservan sus tres escenarios y no usan eventos programados. En el laboratorio se pueden explorar eventos al cierre de un tick:
+
+- **CAIDA** detiene un servidor y envía a espera sus tareas en cola, conservando el trabajo que falta por procesar.
+- **RECUPERACION** reactiva un servidor caído; las tareas en espera vuelven a asignarse en el siguiente tick.
+- **DEGRADACION** reduce la capacidad y puede marcar el servidor como sobrecargado si la carga supera el umbral.
+- **RESTAURACION** devuelve la capacidad original.
+
+Los servidores sobrecargados siguen procesando su cola, pero no reciben trabajo nuevo hasta recuperar disponibilidad. Si todos los servidores están caídos, las tareas esperan cuando existe una recuperación programada; si no existe, el motor lanza `SistemaCaidoError` con eventos, registros completados, tick y tareas pendientes.
+
+Round Robin rota entre servidores disponibles; Menor Carga considera el trabajo pendiente relativo a la capacidad; Aleatoria elige entre los servidores disponibles. El modo laboratorio aplica los mismos trabajos y eventos a las tres estrategias para comparar sus resultados; esos datos son exploratorios y no modifican el CSV, Excel ni las tablas oficiales.
+
+## 13. Modo laboratorio
+
+En **Laboratorio** se pueden ajustar el tamaño de la corrida, servidores, umbral y semilla, y agregar eventos individualmente o cargar presets de caída/recuperación y degradación/restauración. Cada estrategia se ejecuta con el mismo conjunto de tareas. El panel compara makespan y espera, muestra la bitácora, la evolución de la carga y un ρ aproximado calculado como trabajo acumulado de las llegadas dividido entre la capacidad acumulada.
+
+Los resultados exploratorios se mantienen separados de `results/resumen.csv` y `results/resumen.xlsx`. La reproducción por ticks muestra los snapshots del motor; para construirla se vuelve a ejecutar una corrida individual con historial habilitado.
+
+## 14. Limitaciones
+
+- La simulación modela un reloj discreto y colas FIFO; no representa latencia de red ni coordinación entre procesos reales.
+- Los eventos posteriores a la finalización de todas las tareas no se ejecutan, pues el motor termina cuando no queda trabajo.
+- ρ es una estimación basada en las llegadas y la capacidad nominal, no una medición de utilización real.
+- Las visualizaciones interactivas requieren Plotly; Matplotlib se conserva para los reportes PNG.
+
+## 15. Estructura del proyecto
 
 ```text
 balanceo-carga/
@@ -172,13 +198,19 @@ balanceo-carga/
 ├── .gitignore
 ├── README.md
 ├── requirements.txt
+├── .streamlit/
+│   └── config.toml
 ├── docs/
 │   └── arquitectura.md
 ├── results/
-│   └── .gitkeep
+│   ├── .gitkeep
+│   └── verificacion_umbral12_20261106_1437/
+│       ├── parametros.csv
+│       └── resumen.csv
 ├── src/
 │   ├── __init__.py
 │   ├── algorithms.py
+│   ├── bitacora.py
 │   ├── config.py
 │   ├── dashboard.py
 │   ├── engine.py
@@ -189,13 +221,17 @@ balanceo-carga/
 │   ├── report.py
 │   ├── scenarios.py
 │   └── task_generator.py
+│   └── visual.py
 └── tests/
     ├── __init__.py
     ├── conftest.py
     ├── test_algorithms.py
     ├── test_casos_algoritmos.py
+    ├── test_dashboard_smoke.py
     ├── test_distribucion_y_regresion.py
+    ├── test_eventos_programados.py
     ├── test_engine.py
+    ├── test_historial.py
     ├── test_invariantes.py
     ├── test_report.py
     └── test_trazas_manuales.py

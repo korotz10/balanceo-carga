@@ -1,0 +1,12 @@
+parametro,valor
+umbral_sobrecarga,12.0
+num_tareas,100
+num_servidores,4
+duracion_min,1
+duracion_max,10
+intervalo_llegada,2
+semilla_inicial,42
+semilla_final,71
+repeticiones,30
+origen_umbral,variable de entorno UMBRAL_SOBRECARGA=12
+comando,python -m src.main --all --resultados results\verificacion_umbral12_20261106_1437
